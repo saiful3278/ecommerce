@@ -2,6 +2,7 @@
 import { TrendingDown, TrendingUp } from "lucide-react";
 import React from "react";
 import Chart from "react-apexcharts";
+import type { ApexOptions } from "apexcharts";
 
 type Props = {
   title: string;
@@ -18,7 +19,7 @@ const AreaChartComponent: React.FC<Props> = ({
   color = "#3b82f6",
   percentageChange,
 }) => {
-  const options = {
+  const options: ApexOptions = {
     chart: {
       id: "area-chart",
 

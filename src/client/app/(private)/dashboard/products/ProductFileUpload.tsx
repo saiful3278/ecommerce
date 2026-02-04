@@ -8,8 +8,9 @@ import {
   XCircle,
   AlertCircle,
 } from "lucide-react";
-import { useBulkProductsMutation } from "@/app/store/apis/ProductApi";
 import useToast from "@/app/hooks/ui/useToast";
+import { getSupabaseClient } from "@/app/lib/supabaseClient";
+import { generateUniqueSlug } from "@/app/utils/slug";
 
 interface ProductFileUploadProps {
   onUploadSuccess: () => void;
@@ -18,10 +19,10 @@ interface ProductFileUploadProps {
 
 const ProductFileUpload = ({
   onUploadSuccess,
-  acceptedFormats = [".xlsx", ".csv"],
+  acceptedFormats = [".csv"],
 }: ProductFileUploadProps) => {
-  const [uploadProductsFile, { isLoading }] = useBulkProductsMutation();
   const { showToast } = useToast();
+  const [isLoading, setIsLoading] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const [fileName, setFileName] = useState("");
   const [uploadStatus, setUploadStatus] = useState<
@@ -49,35 +50,97 @@ const ProductFileUpload = ({
     }
   };
 
+  const parseCSV = (text: string) => {
+    const lines = text.split("\n");
+    const headers = lines[0].split(",").map((h) => h.trim());
+    const result = [];
+
+    for (let i = 1; i < lines.length; i++) {
+      if (!lines[i].trim()) continue;
+      const currentLine = lines[i].split(","); // Simple split, doesn't handle quoted commas
+      const obj: any = {};
+
+      for (let j = 0; j < headers.length; j++) {
+        obj[headers[j]] = currentLine[j]?.trim();
+      }
+      result.push(obj);
+    }
+    return result;
+  };
+
   const processFile = async (file: File) => {
     if (!file) return;
 
     const fileExtension = file.name.split(".").pop()?.toLowerCase();
-    if (
-      !acceptedFormats
-        .map((f) => f.replace(".", ""))
-        .includes(fileExtension || "")
-    ) {
-      showToast(
-        `Invalid file format. Please upload ${acceptedFormats.join(
-          " or "
-        )} files.`,
-        "error"
-      );
-      return;
+    if (fileExtension !== "csv") {
+        showToast("Only CSV files are supported at the moment.", "error");
+        return;
     }
 
     setFileName(file.name);
-
-    const formData = new FormData();
-    formData.append("file", file);
+    setIsLoading(true);
 
     try {
-      await uploadProductsFile(formData).unwrap();
+      const text = await file.text();
+      const data = parseCSV(text);
+      const supabase = getSupabaseClient();
+
+      let successCount = 0;
+      let errorCount = 0;
+
+      for (const row of data) {
+        try {
+            // Basic validation
+            if (!row.name || !row.price || !row.categoryId) {
+                console.warn("Skipping invalid row:", row);
+                errorCount++;
+                continue;
+            }
+
+            const slug = await generateUniqueSlug(supabase, "products", row.name);
+
+            // Create Product
+            const { data: product, error: productError } = await supabase
+                .from("products")
+                .insert({
+                    name: row.name,
+                    slug: slug,
+                    description: row.description || "",
+                    category_id: row.categoryId,
+                    is_new: row.isNew === "true",
+                    is_featured: row.isFeatured === "true",
+                    is_trending: row.isTrending === "true",
+                    is_best_seller: row.isBestSeller === "true",
+                })
+                .select()
+                .single();
+
+            if (productError || !product) throw productError;
+
+            // Create Default Variant
+            const { error: variantError } = await supabase
+                .from("product_variants")
+                .insert({
+                    product_id: product.id,
+                    sku: row.sku || `SKU-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+                    price: parseFloat(row.price) || 0,
+                    stock: parseInt(row.stock) || 0,
+                    low_stock_threshold: 10,
+                    images: row.images ? row.images.split("|").map((url: string) => url.trim()) : [], // Expect pipe separated URLs
+                });
+
+            if (variantError) throw variantError;
+            successCount++;
+
+        } catch (err) {
+            console.error("Error processing row:", row, err);
+            errorCount++;
+        }
+      }
+
       setUploadStatus("success");
-      showToast("Products imported successfully!", "success");
+      showToast(`Imported ${successCount} products successfully. ${errorCount} failed.`, "success");
       onUploadSuccess();
-      // Reset the state after 3 seconds of showing success
       setTimeout(resetState, 3000);
     } catch (error) {
       console.error("Upload failed:", error);
@@ -86,6 +149,8 @@ const ProductFileUpload = ({
         "Failed to import products. Please check your file and try again.",
         "error"
       );
+    } finally {
+        setIsLoading(false);
     }
   };
 
@@ -145,10 +210,10 @@ const ProductFileUpload = ({
               <p className="text-sm font-medium text-gray-700">
                 {fileName
                   ? fileName
-                  : "Drop product file here or click to upload"}
+                  : "Drop CSV file here or click to upload"}
               </p>
               <p className="text-xs text-gray-500">
-                Supports {acceptedFormats.join(", ")} files
+                Supports CSV files
               </p>
             </div>
             <button
@@ -159,7 +224,7 @@ const ProductFileUpload = ({
               {isLoading ? (
                 <>
                   <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
-                  <span>Uploading...</span>
+                  <span>Importing...</span>
                 </>
               ) : (
                 <>
@@ -173,14 +238,14 @@ const ProductFileUpload = ({
           <div className="flex flex-col items-center space-y-2">
             <CheckCircle className="h-8 w-8 text-green-500" />
             <p className="text-sm font-medium text-green-700">
-              Upload successful!
+              Import successful!
             </p>
             <p className="text-xs text-gray-500">{fileName}</p>
           </div>
         ) : (
           <div className="flex flex-col items-center space-y-2">
             <XCircle className="h-8 w-8 text-red-500" />
-            <p className="text-sm font-medium text-red-700">Upload failed</p>
+            <p className="text-sm font-medium text-red-700">Import failed</p>
             <p className="text-xs text-gray-500">{fileName}</p>
             <button
               onClick={resetState}
@@ -195,8 +260,7 @@ const ProductFileUpload = ({
       <div className="mt-3 flex items-center text-xs text-gray-500">
         <AlertCircle className="h-3 w-3 mr-1" />
         <span>
-          Make sure your file has the correct columns: name, price, discount,
-          stock, categoryId, description, and images (comma-separated URLs)
+          CSV columns: name, price, stock, categoryId, description, sku, images (pipe | separated)
         </span>
       </div>
     </div>

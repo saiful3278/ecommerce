@@ -17,9 +17,7 @@ interface ListItemProps {
 const ListItem: React.FC<ListItemProps> = ({ item, itemType }) => {
   const getItemLink = () => {
     if (itemType === "product") {
-      const slug = item.slug;
-
-      return `/product/${slug}`;
+      return `/shop/product/${item.id}`;
     } else {
       return `/user/${item.id}`;
     }
@@ -39,17 +37,25 @@ const ListItem: React.FC<ListItemProps> = ({ item, itemType }) => {
             height={40}
             className={itemType === "user" ? "rounded-full" : "rounded-md"}
             onError={(e) => {
-              e.currentTarget.src =
+              const target = e.currentTarget as HTMLImageElement;
+              target.srcset = "";
+              target.src =
                 itemType === "user"
                   ? generateUserAvatar(item.name)
                   : generateProductPlaceholder(item.name);
             }}
           />
         ) : (
-          <div
-            className={`w-10 h-10 bg-gray-200 ${
-              itemType === "user" ? "rounded-full" : "rounded-md"
-            }`}
+          <Image
+            src={
+              itemType === "user"
+                ? generateUserAvatar(item.name)
+                : generateProductPlaceholder(item.name)
+            }
+            alt={item.name}
+            width={40}
+            height={40}
+            className={itemType === "user" ? "rounded-full" : "rounded-md"}
           />
         )}
         <div>

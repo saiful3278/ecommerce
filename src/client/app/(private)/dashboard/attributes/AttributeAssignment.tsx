@@ -1,18 +1,11 @@
 "use client";
 
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { useForm, Controller } from "react-hook-form";
-import { TagsIcon } from "lucide-react";
 import useToast from "@/app/hooks/ui/useToast";
 import Dropdown from "@/app/components/molecules/Dropdown";
-import { useGetAllCategoriesQuery } from "@/app/store/apis/CategoryApi";
-import { useGetAllProductsQuery } from "@/app/store/apis/ProductApi";
-import {
-  useAssignAttributeToCategoryMutation,
-  useAssignAttributeToProductMutation,
-} from "@/app/store/apis/AttributeApi";
 import CategoryAssignmentSection from "./CategoryAssignment";
-// import ProductAssignmentSection from "./ProductsAssignment";
+import { getSupabaseClient } from "@/app/lib/supabaseClient";
 
 interface Attribute {
   id: string;
@@ -28,13 +21,12 @@ interface AssignFormData {
 
 interface AttributeAssignmentProps {
   attributes: Attribute[];
+  onAssignmentUpdated?: () => void;
 }
 
-// Separate component for Category Assignment
-
-// Main component
 const AttributeAssignment: React.FC<AttributeAssignmentProps> = ({
   attributes,
+  onAssignmentUpdated,
 }) => {
   const { showToast } = useToast();
   const { control, handleSubmit, watch, setValue } = useForm<AssignFormData>({
@@ -46,17 +38,18 @@ const AttributeAssignment: React.FC<AttributeAssignmentProps> = ({
     },
   });
 
-  // API queries
-  const { data: categoriesData } = useGetAllCategoriesQuery(undefined);
-  const { data: productsData } = useGetAllProductsQuery(undefined);
+  const [categories, setCategories] = useState<any[]>([]);
+  const [isAssigningToCategory, setIsAssigningToCategory] = useState(false);
 
-  // Mutations
-  const [assignAttributeToCategory, { isLoading: isAssigningToCategory }] =
-    useAssignAttributeToCategoryMutation();
-  const [assignAttributeToProduct, { isLoading: isAssigningToProduct }] =
-    useAssignAttributeToProductMutation();
+  useEffect(() => {
+    const fetchCategories = async () => {
+      const supabase = getSupabaseClient();
+      const { data } = await supabase.from("categories").select("id, name");
+      setCategories(data || []);
+    };
+    fetchCategories();
+  }, []);
 
-  // Dropdown options
   const attributeOptions =
     attributes?.map((attr) => ({
       label: attr.name,
@@ -64,61 +57,50 @@ const AttributeAssignment: React.FC<AttributeAssignmentProps> = ({
     })) || [];
 
   const categoryOptions =
-    categoriesData?.categories?.map((cat: any) => ({
+    categories.map((cat: any) => ({
       label: cat.name,
       value: cat.id,
     })) || [];
 
-  const productOptions =
-    productsData?.products?.map((prod: any) => ({
-      label: prod.name,
-      value: prod.id,
-    })) || [];
-
-  // Handle category assignment
   const onAssignToCategory = async (data: AssignFormData) => {
     if (!data.attributeId || !data.categoryId) {
       showToast("Please select an attribute and category", "error");
       return;
     }
 
+    setIsAssigningToCategory(true);
+    const supabase = getSupabaseClient();
+
     try {
-      await assignAttributeToCategory({
-        categoryId: data.categoryId,
-        attributeId: data.attributeId,
-        isRequired: data.isRequired,
+      const { error } = await supabase.from("category_attributes").insert({
+        category_id: data.categoryId,
+        attribute_id: data.attributeId,
+        is_required: data.isRequired,
       });
+
+      if (error) {
+        if (error.code === "23505") {
+          throw new Error("Attribute is already assigned to this category");
+        }
+        throw error;
+      }
+
       showToast("Attribute assigned to category successfully", "success");
       setValue("categoryId", "");
       setValue("isRequired", false);
-    } catch (err) {
+      if (onAssignmentUpdated) {
+        onAssignmentUpdated();
+      }
+    } catch (err: any) {
       console.error("Error assigning to category:", err);
-      showToast("Failed to assign attribute to category", "error");
+      showToast(err.message || "Failed to assign attribute to category", "error");
+    } finally {
+      setIsAssigningToCategory(false);
     }
   };
 
-  // Handle product assignment
-  const onAssignToProduct = async (data: AssignFormData) => {
-    if (!data.attributeId || !data.productId) {
-      showToast("Please select an attribute and product", "error");
-      return;
-    }
-
-    try {
-      await assignAttributeToProduct({
-        attributeId: data.attributeId,
-        productId: data.productId,
-      });
-      showToast("Attribute assigned to product successfully", "success");
-      setValue("productId", "");
-    } catch (err) {
-      console.error("Error assigning to product:", err);
-      showToast("Failed to assign attribute to product", "error");
-    }
-  };
-
-  const handleAttributeChange = (value: string) => {
-    setValue("attributeId", value);
+  const handleAttributeChange = (value: string | null) => {
+    setValue("attributeId", value || "");
     setValue("categoryId", "");
     setValue("productId", "");
     setValue("isRequired", false);
@@ -166,25 +148,13 @@ const AttributeAssignment: React.FC<AttributeAssignmentProps> = ({
               isAssigningToCategory={isAssigningToCategory}
               watch={watch}
             />
-
-            {/* <ProductAssignmentSection
-              control={control}
-              handleSubmit={handleSubmit}
-              onAssignToProduct={onAssignToProduct}
-              productOptions={productOptions}
-              isAssigningToProduct={isAssigningToProduct}
-              watch={watch}
-            /> */}
           </div>
         )}
 
         {!watch("attributeId") && (
           <div className="text-center py-8">
-            <div className="text-gray-400 mb-2">
-              <TagsIcon size={32} className="mx-auto" />
-            </div>
-            <p className="text-sm text-gray-500">
-              Select an attribute to begin assignment
+            <p className="text-gray-500">
+              Please select an attribute to view assignment options
             </p>
           </div>
         )}

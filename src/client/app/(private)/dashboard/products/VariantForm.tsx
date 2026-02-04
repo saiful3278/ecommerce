@@ -105,7 +105,7 @@ const VariantForm: React.FC<VariantFormProps> = ({
               />
               {errors.variants?.[index]?.sku && (
                 <p className="text-red-500 text-xs mt-1">
-                  {errors.variants[index].sku?.message}
+                  {errors.variants[index]?.sku?.message}
                 </p>
               )}
             </div>
@@ -133,7 +133,7 @@ const VariantForm: React.FC<VariantFormProps> = ({
               />
               {errors.variants?.[index]?.price && (
                 <p className="text-red-500 text-xs mt-1">
-                  {errors.variants[index].price?.message}
+                  {errors.variants[index]?.price?.message}
                 </p>
               )}
             </div>
@@ -160,7 +160,7 @@ const VariantForm: React.FC<VariantFormProps> = ({
               />
               {errors.variants?.[index]?.stock && (
                 <p className="text-red-500 text-xs mt-1">
-                  {errors.variants[index].stock?.message}
+                  {errors.variants[index]?.stock?.message}
                 </p>
               )}
             </div>
@@ -184,7 +184,7 @@ const VariantForm: React.FC<VariantFormProps> = ({
               />
               {errors.variants?.[index]?.lowStockThreshold && (
                 <p className="text-red-500 text-xs mt-1">
-                  {errors.variants[index].lowStockThreshold?.message}
+                  {errors.variants[index]?.lowStockThreshold?.message}
                 </p>
               )}
             </div>
@@ -236,7 +236,7 @@ const VariantForm: React.FC<VariantFormProps> = ({
               />
               {errors.variants?.[index]?.images && (
                 <p className="text-red-500 text-xs mt-1">
-                  {errors.variants[index].images?.message}
+                  {errors.variants[index]?.images?.message}
                 </p>
               )}
             </div>
@@ -251,7 +251,7 @@ const VariantForm: React.FC<VariantFormProps> = ({
                   {attr.isRequired && <span className="text-red-500">*</span>}
                 </label>
                 <Controller
-                  name={`variants.${index}.attributes[${attrIndex}].valueId`}
+                  name={`variants.${index}.attributes.${attrIndex}.valueId`}
                   control={control}
                   rules={
                     attr.isRequired
@@ -264,11 +264,11 @@ const VariantForm: React.FC<VariantFormProps> = ({
                         label: v.value,
                         value: v.id,
                       }))}
-                      value={field.value}
+                      value={field.value ?? null}
                       onChange={(value) => {
                         field.onChange(value);
                         form.setValue(
-                          `variants.${index}.attributes[${attrIndex}].attributeId`,
+                          `variants.${index}.attributes.${attrIndex}.attributeId`,
                           attr.id
                         );
                       }}
@@ -279,10 +279,7 @@ const VariantForm: React.FC<VariantFormProps> = ({
                 />
                 {errors.variants?.[index]?.attributes?.[attrIndex]?.valueId && (
                   <p className="text-red-500 text-xs mt-1">
-                    {
-                      errors.variants[index].attributes?.[attrIndex]?.valueId
-                        ?.message
-                    }
+                    {errors.variants[index]?.attributes?.[attrIndex]?.valueId?.message}
                   </p>
                 )}
               </div>

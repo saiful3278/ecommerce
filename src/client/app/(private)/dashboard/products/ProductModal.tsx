@@ -1,14 +1,11 @@
 "use client";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import {
-  useGetAllCategoriesQuery,
-  useGetCategoryAttributesQuery,
-} from "@/app/store/apis/CategoryApi";
 import { ProductFormData } from "./product.types";
 import ProductForm from "./ProductForm";
+import { getSupabaseClient } from "@/app/lib/supabaseClient";
 
 interface ProductModalProps {
   isOpen: boolean;
@@ -27,12 +24,26 @@ const ProductModal: React.FC<ProductModalProps> = ({
   isLoading,
   error,
 }) => {
-  const { data: categoriesData } = useGetAllCategoriesQuery({});
-  const categories =
-    categoriesData?.categories?.map((category) => ({
-      label: category.name,
-      value: category.id,
-    })) || [];
+  const [categories, setCategories] = useState<{ label: string; value: string }[]>([]);
+  const [categoryAttributes, setCategoryAttributes] = useState<any[]>([]);
+
+  useEffect(() => {
+    const fetchCategories = async () => {
+      const supabase = getSupabaseClient();
+      const { data } = await supabase
+        .from("categories")
+        .select("id, name")
+        .order("name");
+      
+      setCategories(
+        data?.map((cat) => ({
+          label: cat.name,
+          value: cat.id,
+        })) || []
+      );
+    };
+    fetchCategories();
+  }, []);
 
   const form = useForm<ProductFormData>({
     defaultValues: {
@@ -61,13 +72,41 @@ const ProductModal: React.FC<ProductModalProps> = ({
   });
 
   const selectedCategoryId = form.watch("categoryId");
-  const { data: categoryAttributesData } = useGetCategoryAttributesQuery(
-    selectedCategoryId,
-    {
-      skip: !selectedCategoryId,
-    }
-  );
-  const categoryAttributes = categoryAttributesData?.attributes || [];
+
+  useEffect(() => {
+    const fetchCategoryAttributes = async () => {
+      if (!selectedCategoryId) {
+        setCategoryAttributes([]);
+        return;
+      }
+      
+      const supabase = getSupabaseClient();
+      const { data, error } = await supabase
+        .from("category_attributes")
+        .select(`
+          is_required,
+          attribute:attributes(
+            id,
+            name,
+            slug,
+            values:attribute_values(id, value, slug)
+          )
+        `)
+        .eq("category_id", selectedCategoryId);
+
+      if (!error && data) {
+        const attributes = data.map((item: any) => ({
+          id: item.attribute.id,
+          name: item.attribute.name,
+          isRequired: item.is_required,
+          values: item.attribute.values || [],
+        }));
+        setCategoryAttributes(attributes);
+      }
+    };
+
+    fetchCategoryAttributes();
+  }, [selectedCategoryId]);
 
   useEffect(() => {
     if (initialData) {
@@ -92,7 +131,19 @@ const ProductModal: React.FC<ProductModalProps> = ({
         isBestSeller: false,
         categoryId: "",
         description: "",
-        variants: [],
+        variants: [
+          {
+            id: "",
+            images: [],
+            lowStockThreshold: 10,
+            barcode: "",
+            warehouseLocation: "",
+            price: 0,
+            sku: "",
+            stock: 0,
+            attributes: [],
+          },
+        ],
       });
     }
   }, [initialData, form]);

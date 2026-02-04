@@ -4,7 +4,9 @@ import { motion } from "framer-motion";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import useStorage from "@/app/hooks/state/useStorage";
-import { useSignOutMutation } from "@/app/store/apis/AuthApi";
+import { getSupabaseClient } from "@/app/lib/supabaseClient";
+import { useAppDispatch } from "@/app/store/hooks";
+import { logout } from "@/app/store/slices/AuthSlice";
 import {
   LayoutDashboard,
   ShoppingCart,
@@ -28,7 +30,7 @@ const Sidebar = () => {
   );
   const pathname = usePathname();
   const router = useRouter();
-  const [signout] = useSignOutMutation();
+  const dispatch = useAppDispatch();
 
   const sections = useMemo(
     () => [
@@ -67,7 +69,9 @@ const Sidebar = () => {
 
   const handleSignOut = async () => {
     try {
-      await signout().unwrap();
+      const supabase = getSupabaseClient();
+      await supabase.auth.signOut();
+      dispatch(logout());
       router.push("/sign-in");
     } catch (error) {
       console.error("Error signing out:", error);

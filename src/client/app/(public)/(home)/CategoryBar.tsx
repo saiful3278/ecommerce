@@ -1,10 +1,10 @@
 "use client";
 
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
 import Image from "next/image";
-import { useGetAllCategoriesQuery } from "@/app/store/apis/CategoryApi";
+import { getSupabaseClient } from "@/app/lib/supabaseClient";
 import {
   Smartphone,
   Monitor,
@@ -66,9 +66,42 @@ const categoryIcons: Record<string, React.ElementType> = {
 // Default icon for categories without specific mapping
 const DefaultIcon = Package;
 
+interface Category {
+  id: string;
+  name: string;
+  slug: string;
+  images?: string[];
+  products?: any[]; // Allow products array (even though we don't fetch it yet, to fix linter)
+}
+
 const CategoryBar = () => {
-  const { data, isLoading, error } = useGetAllCategoriesQuery({});
-  const categories = data?.categories || [];
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<any>(null);
+
+  useEffect(() => {
+    const fetchCategories = async () => {
+      try {
+        const supabase = getSupabaseClient();
+        const { data, error } = await supabase
+          .from("categories")
+          .select("id, name, slug, images")
+          .order("name"); 
+        
+        if (error) {
+          console.error("Supabase error fetching categories:", error);
+          throw error;
+        }
+        setCategories(data || []);
+      } catch (err: any) {
+        console.error("Error fetching categories:", err);
+        setError(err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchCategories();
+  }, []);
 
   // Get icon for category (fallback)
   const getCategoryIcon = (categoryName: string) => {
@@ -135,7 +168,7 @@ const CategoryBar = () => {
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 max-w-7xl mx-auto">
           {categories.map((category, index) => {
             const hasImages = category.images && category.images.length > 0;
-            const imageSrc = hasImages ? category.images[0] : null;
+            const imageSrc = hasImages && category.images ? category.images[0] : null;
             const Icon = getCategoryIcon(category.name);
 
             return (

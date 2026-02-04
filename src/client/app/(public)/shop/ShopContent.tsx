@@ -1,14 +1,13 @@
 // shop/ShopContent.tsx (updated)
 "use client";
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useQuery } from "@apollo/client";
 import { motion, AnimatePresence } from "framer-motion";
 import { Package } from "lucide-react";
-import { GET_PRODUCTS, GET_CATEGORIES } from "@/app/gql/Product";
 import { Product } from "@/app/types/productTypes";
 import ProductCard from "../product/ProductCard";
 import ProductFilters, { FilterValues } from "./ProductFilters";
+import { getSupabaseClient } from "@/app/lib/supabaseClient";
 
 interface ShopContentProps {
   sidebarOpen: boolean;
@@ -45,23 +44,134 @@ const ShopContent: React.FC<ShopContentProps> = ({
   const [skip, setSkip] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [isFetchingMore, setIsFetchingMore] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [categories, setCategories] = useState<
+    Array<{ id: string; name: string; slug: string }>
+  >([]);
   const pageSize = 12;
 
-  const { data: categoriesData } = useQuery(GET_CATEGORIES);
-  const categories = categoriesData?.categories || [];
+  const mapProduct = useCallback((product: any): Product => {
+    return {
+      id: product.id,
+      slug: product.slug,
+      name: product.name,
+      isNew: product.is_new,
+      isFeatured: product.is_featured,
+      isTrending: product.is_trending,
+      isBestSeller: product.is_best_seller,
+      averageRating: Number(product.average_rating || 0),
+      reviewCount: Number(product.review_count || 0),
+      description: product.description ?? null,
+      variants:
+        product.product_variants?.map((variant: any) => ({
+          id: variant.id,
+          sku: variant.sku,
+          price: Number(variant.price || 0),
+          images: variant.images || [],
+          stock: variant.stock ?? 0,
+          lowStockThreshold: variant.low_stock_threshold ?? 10,
+          barcode: variant.barcode ?? null,
+          warehouseLocation: variant.warehouse_location ?? null,
+          attributes:
+            variant.product_variant_attributes?.map((attr: any) => ({
+              id: attr.id,
+              attribute: {
+                id: attr.attribute?.id,
+                name: attr.attribute?.name,
+                slug: attr.attribute?.slug,
+              },
+              value: {
+                id: attr.value?.id,
+                value: attr.value?.value,
+                slug: attr.value?.slug,
+              },
+            })) || [],
+        })) || [],
+      category: product.category
+        ? {
+            id: product.category.id,
+            name: product.category.name,
+            slug: product.category.slug,
+          }
+        : null,
+      reviews: [],
+    };
+  }, []);
 
-  const { loading, error, fetchMore } = useQuery(GET_PRODUCTS, {
-    variables: { first: 10, skip: 0, filters },
-    fetchPolicy: "no-cache",
-    onError: (err) => {
-      console.error("Error fetching products:", err);
+  const fetchCategories = useCallback(async () => {
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase
+      .from("categories")
+      .select("id,name,slug")
+      .order("name", { ascending: true });
+    if (!error) {
+      setCategories(data || []);
+    }
+  }, []);
+
+  const fetchProducts = useCallback(
+    async (nextSkip: number, append: boolean) => {
+      setLoading(true);
+      if (!append) {
+        setError(null);
+      }
+      const supabase = getSupabaseClient();
+      let query = supabase
+        .from("products")
+        .select(
+          "id,slug,name,is_new,is_featured,is_trending,is_best_seller,average_rating,review_count,description,category:categories!products_category_id_fkey(id,name,slug),product_variants(id,sku,price,images,stock,low_stock_threshold,barcode,warehouse_location,product_variant_attributes(id,attribute:attributes(id,name,slug),value:attribute_values(id,value,slug)))"
+        )
+        .order("created_at", { ascending: false })
+        .range(nextSkip, nextSkip + pageSize - 1);
+
+      if (filters.search) {
+        const searchValue = `%${filters.search}%`;
+        query = query.or(
+          `name.ilike.${searchValue},description.ilike.${searchValue}`
+        );
+      }
+      if (filters.isNew !== undefined) {
+        query = query.eq("is_new", filters.isNew);
+      }
+      if (filters.isFeatured !== undefined) {
+        query = query.eq("is_featured", filters.isFeatured);
+      }
+      if (filters.isTrending !== undefined) {
+        query = query.eq("is_trending", filters.isTrending);
+      }
+      if (filters.isBestSeller !== undefined) {
+        query = query.eq("is_best_seller", filters.isBestSeller);
+      }
+      if (filters.categoryId) {
+        query = query.eq("category_id", filters.categoryId);
+      }
+      if (filters.minPrice !== undefined) {
+        query = query.gte("product_variants.price", filters.minPrice);
+      }
+      if (filters.maxPrice !== undefined) {
+        query = query.lte("product_variants.price", filters.maxPrice);
+      }
+
+      const { data, error } = await query;
+      if (error) {
+        setError(error.message);
+        setLoading(false);
+        setIsFetchingMore(false);
+        return;
+      }
+
+      const mappedProducts = (data || []).map(mapProduct);
+      setDisplayedProducts((prev) =>
+        append ? [...prev, ...mappedProducts] : mappedProducts
+      );
+      setHasMore(mappedProducts.length === pageSize);
+      setSkip(nextSkip);
+      setLoading(false);
+      setIsFetchingMore(false);
     },
-    onCompleted: (data) => {
-      setDisplayedProducts(data.products.products);
-      setHasMore(data.products.hasMore);
-      setSkip(0);
-    },
-  });
+    [filters, mapProduct, pageSize]
+  );
 
   useEffect(() => {
     setFilters(initialFilters);
@@ -70,33 +180,19 @@ const ShopContent: React.FC<ShopContentProps> = ({
     setHasMore(true);
   }, [initialFilters]);
 
+  useEffect(() => {
+    fetchCategories();
+  }, [fetchCategories]);
+
+  useEffect(() => {
+    fetchProducts(0, false);
+  }, [fetchProducts]);
+
   const handleShowMore = () => {
     if (isFetchingMore) return;
     setIsFetchingMore(true);
     const newSkip = skip + pageSize;
-    fetchMore({
-      variables: { first: pageSize, skip: newSkip, filters },
-      updateQuery: (prev, { fetchMoreResult }) => {
-        if (!fetchMoreResult) return prev;
-        const newProducts = fetchMoreResult.products.products;
-        const newHasMore = fetchMoreResult.products.hasMore;
-
-        setDisplayedProducts((prevProducts) => [
-          ...prevProducts,
-          ...newProducts,
-        ]);
-        setSkip(newSkip);
-        setHasMore(newHasMore);
-        setIsFetchingMore(false);
-
-        return {
-          products: {
-            ...fetchMoreResult.products,
-            products: [...prev.products.products, ...newProducts],
-          },
-        };
-      },
-    });
+    fetchProducts(newSkip, true);
   };
 
   const updateFilters = (newFilters: FilterValues) => {
@@ -171,7 +267,7 @@ const ShopContent: React.FC<ShopContentProps> = ({
           <div className="text-center py-12">
             <p className="text-lg text-red-500">Error loading products</p>
             <p className="text-sm text-gray-500">
-              Please try again or adjust your filters.
+              {error}
             </p>
           </div>
         )}

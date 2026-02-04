@@ -153,20 +153,15 @@ const CustomLoader = () => {
               <span className="text-sm font-medium text-gray-700">
                 Loading progress
               </span>
-              <motion.span
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ duration: 0.5, delay: 2 }}
-                className="text-sm text-indigo-600 font-semibold"
-              >
-                85%
-              </motion.span>
+              <span className="text-sm text-indigo-600 font-semibold">
+                Loading...
+              </span>
             </div>
             <div className="w-full bg-gray-200 rounded-full h-2">
               <motion.div
-                initial={{ width: 0 }}
-                animate={{ width: "85%" }}
-                transition={{ duration: 2, delay: 1.5 }}
+                initial={{ width: "0%" }}
+                animate={{ width: "75%" }}
+                transition={{ duration: 2, delay: 1.5, repeat: Infinity, repeatType: "reverse" }}
                 className="bg-gradient-to-r from-indigo-500 to-purple-600 h-2 rounded-full"
               />
             </div>

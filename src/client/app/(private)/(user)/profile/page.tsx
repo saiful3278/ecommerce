@@ -1,7 +1,7 @@
 "use client";
 import { withAuth } from "@/app/components/HOC/WithAuth";
 import MainLayout from "@/app/components/templates/MainLayout";
-import { useGetMeQuery } from "@/app/store/apis/UserApi";
+import { useAuth } from "@/app/hooks/useAuth";
 import {
   User,
   Shield,
@@ -19,10 +19,8 @@ import { motion } from "framer-motion";
 import { useState } from "react";
 
 const UserProfile = () => {
-  const { data, isLoading, error } = useGetMeQuery(undefined);
+  const { user, isLoading } = useAuth();
   const [isEditing, setIsEditing] = useState(false);
-
-  console.log("user => ", data);
 
   if (isLoading) {
     return (
@@ -61,7 +59,7 @@ const UserProfile = () => {
     );
   }
 
-  if (error || !data?.user) {
+  if (!user) {
     return (
       <MainLayout>
         <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 py-4 sm:py-8 px-3 sm:px-4">
@@ -84,8 +82,6 @@ const UserProfile = () => {
       </MainLayout>
     );
   }
-
-  const { user } = data;
 
   // Generate initials for avatar fallback
   const getInitials = (name: string) => {

@@ -1,12 +1,34 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { MoveRight, MoveLeft } from "lucide-react";
-import { useGetAllCategoriesQuery } from "@/app/store/apis/CategoryApi";
-import { Category } from "@/app/types/productTypes";
+import { getSupabaseClient } from "@/app/lib/supabaseClient";
+
+interface CategoryBrowserItem {
+  id: string;
+  name: string;
+  slug: string;
+}
 
 const CategoryBrowser = () => {
-  const { data } = useGetAllCategoriesQuery({});
+  const [categories, setCategories] = useState<CategoryBrowserItem[]>([]);
   const [activeCategory, setActiveCategory] = useState("Camera");
+
+  useEffect(() => {
+    const fetchCategories = async () => {
+      try {
+        const supabase = getSupabaseClient();
+        const { data } = await supabase
+          .from("categories")
+          .select("id, name, slug")
+          .order("name");
+        
+        setCategories(data || []);
+      } catch (error) {
+        console.error("Error fetching categories:", error);
+      }
+    };
+    fetchCategories();
+  }, []);
 
   return (
     <section className="relative w-full max-w-[83%] mx-auto flex flex-col items-start px-8 my-[5rem]">
@@ -29,7 +51,7 @@ const CategoryBrowser = () => {
       </div>
 
       <div className="grid grid-cols-6 gap-4 w-full">
-        {data?.categories.map(({ name, slug }: Category) => (
+        {categories.map(({ name, slug }: CategoryBrowserItem) => (
           <button
             key={slug}
             onClick={() => setActiveCategory(slug)}

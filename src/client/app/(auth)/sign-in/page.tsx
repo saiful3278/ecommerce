@@ -1,16 +1,14 @@
 "use client";
+import React from "react";
 import { useForm } from "react-hook-form";
 import Input from "@/app/components/atoms/Input";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import MainLayout from "@/app/components/templates/MainLayout";
 import { Loader2 } from "lucide-react";
-import { useSignInMutation } from "@/app/store/apis/AuthApi";
-import GoogleIcon from "@/app/assets/icons/google.png";
-import FacebookIcon from "@/app/assets/icons/facebook.png";
-import TwitterIcon from "@/app/assets/icons/twitter.png";
-import Image from "next/image";
-import { AUTH_API_BASE_URL } from "@/app/lib/constants/config";
+import { getSupabaseClient } from "@/app/lib/supabaseClient";
+import { useAppDispatch } from "@/app/hooks/state/useRedux";
+import { setUser } from "@/app/store/slices/AuthSlice";
 
 interface InputForm {
   email: string;
@@ -18,8 +16,10 @@ interface InputForm {
 }
 
 const SignIn = () => {
-  const [signIn, { error, isLoading }] = useSignInMutation();
+  const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
+  const [isLoading, setIsLoading] = React.useState(false);
   const router = useRouter();
+  const dispatch = useAppDispatch();
 
   const {
     control,
@@ -33,17 +33,40 @@ const SignIn = () => {
   });
 
   const onSubmit = async (formData: InputForm) => {
-    try {
-      await signIn(formData).unwrap();
-      router.push("/");
-    } catch (error) {
-      console.log("error: ", error);
+    setErrorMessage(null);
+    setIsLoading(true);
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: formData.email,
+      password: formData.password,
+    });
+    setIsLoading(false);
+    if (error) {
+      setErrorMessage(error.message);
+      return;
     }
-  };
-
-  const handleOAuthLogin = (provider: string) => {
-    console.log("Using AUTH API URL:", AUTH_API_BASE_URL);
-    window.location.href = `${AUTH_API_BASE_URL}/auth/${provider}`;
+    if (data.session) {
+      const u = data.session.user;
+      const meta = (u.user_metadata as any) || {};
+      const rawRole =
+        (typeof meta.role === "string" && meta.role) ||
+        (typeof meta.user_role === "string" && meta.user_role) ||
+        (typeof meta.role?.name === "string" && meta.role.name) ||
+        undefined;
+      const role = typeof rawRole === "string" ? rawRole.toUpperCase() : "USER";
+      dispatch(
+        setUser({
+          user: {
+            id: u.id,
+            name: meta?.full_name || u.email || "User",
+            email: u.email || "",
+            role,
+            avatar: meta?.avatar_url || null,
+          },
+        })
+      );
+      router.push("/");
+    }
   };
 
   return (
@@ -54,9 +77,9 @@ const SignIn = () => {
             Sign In
           </h2>
 
-          {error && (
+          {errorMessage && (
             <div className="bg-red-50 border border-red-300 text-red-600 text-center text-sm p-3 rounded mb-4">
-              An unexpected error occurred
+              {errorMessage}
             </div>
           )}
 
@@ -138,44 +161,7 @@ const SignIn = () => {
             </p>
           </div>
 
-          <div className="relative my-4">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-gray-300"></div>
-            </div>
-            <div className="relative flex justify-center text-sm">
-              <span className="px-2 bg-white text-gray-500">or</span>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            {[
-              {
-                provider: "google",
-                icon: GoogleIcon,
-                label: "Sign in with Google",
-              },
-              {
-                provider: "facebook",
-                icon: FacebookIcon,
-                label: "Sign in with Facebook",
-              },
-              {
-                provider: "twitter",
-                icon: TwitterIcon,
-                label: "Sign in with X",
-              },
-            ].map(({ provider, icon, label }) => (
-              <button
-                key={provider}
-                onClick={() => handleOAuthLogin(provider)}
-                className="w-full py-3 border-2 border-gray-100 bg-transparent text-black rounded-md font-medium hover:bg-gray-50
-                 transition-colors flex items-center justify-center gap-2 text-sm"
-              >
-                <Image width={20} height={20} src={icon} alt={provider} />
-                {label}
-              </button>
-            ))}
-          </div>
+          {/* OAuth removed: only email/password sign-in is available */}
         </main>
       </div>
     </MainLayout>

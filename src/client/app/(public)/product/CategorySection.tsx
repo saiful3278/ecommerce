@@ -1,11 +1,11 @@
 "use client";
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 import { Package } from "lucide-react";
 import ProductCard from "./ProductCard";
-import { useQuery } from "@apollo/client";
-import { GET_PRODUCTS } from "../../gql/Product";
 import SkeletonLoader from "@/app/components/feedback/SkeletonLoader";
+import { getSupabaseClient } from "@/app/lib/supabaseClient";
+import { Product } from "@/app/types/productTypes";
 
 interface CategorySectionProps {
   categoryId: string;
@@ -19,34 +19,101 @@ const CategorySection: React.FC<CategorySectionProps> = ({
   pageSize,
 }) => {
   const [skip, setSkip] = useState(0);
-  const { data, loading, error, fetchMore } = useQuery(GET_PRODUCTS, {
-    variables: { first: pageSize, skip: 0, filters: { categoryId } },
-    fetchPolicy: "cache-and-network",
-  });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [hasMore, setHasMore] = useState(false);
 
-  const products = data?.products?.products || [];
-  const hasMore = data?.products?.hasMore || false;
+  const mapProduct = useCallback((product: any): Product => {
+    return {
+      id: product.id,
+      slug: product.slug,
+      name: product.name,
+      isNew: product.is_new,
+      isFeatured: product.is_featured,
+      isTrending: product.is_trending,
+      isBestSeller: product.is_best_seller,
+      averageRating: Number(product.average_rating || 0),
+      reviewCount: Number(product.review_count || 0),
+      description: product.description ?? null,
+      variants:
+        product.product_variants?.map((variant: any) => ({
+          id: variant.id,
+          sku: variant.sku,
+          price: Number(variant.price || 0),
+          images: variant.images || [],
+          stock: variant.stock ?? 0,
+          lowStockThreshold: variant.low_stock_threshold ?? 10,
+          barcode: variant.barcode ?? null,
+          warehouseLocation: variant.warehouse_location ?? null,
+          attributes:
+            variant.product_variant_attributes?.map((attr: any) => ({
+              id: attr.id,
+              attribute: {
+                id: attr.attribute?.id,
+                name: attr.attribute?.name,
+                slug: attr.attribute?.slug,
+              },
+              value: {
+                id: attr.value?.id,
+                value: attr.value?.value,
+                slug: attr.value?.slug,
+              },
+            })) || [],
+        })) || [],
+      category: product.category
+        ? {
+            id: product.category.id,
+            name: product.category.name,
+            slug: product.category.slug,
+          }
+        : null,
+      reviews: [],
+    };
+  }, []);
+
+  const fetchProducts = useCallback(
+    async (nextSkip: number, append: boolean) => {
+      setLoading(true);
+      if (!append) {
+        setError(null);
+      }
+      const supabase = getSupabaseClient();
+      const { data, error } = await supabase
+        .from("products")
+        .select(
+          "id,slug,name,is_new,is_featured,is_trending,is_best_seller,average_rating,review_count,description,category:categories!products_category_id_fkey(id,name,slug),product_variants(id,sku,price,images,stock,low_stock_threshold,barcode,warehouse_location,product_variant_attributes(id,attribute:attributes(id,name,slug),value:attribute_values(id,value,slug)))"
+        )
+        .eq("category_id", categoryId)
+        .order("created_at", { ascending: false })
+        .range(nextSkip, nextSkip + pageSize - 1);
+
+      if (error) {
+        setError(error.message);
+        setLoading(false);
+        return;
+      }
+
+      const mappedProducts = (data || []).map(mapProduct);
+      setProducts((prev) =>
+        append ? [...prev, ...mappedProducts] : mappedProducts
+      );
+      setHasMore(mappedProducts.length === pageSize);
+      setSkip(nextSkip);
+      setLoading(false);
+    },
+    [categoryId, mapProduct, pageSize]
+  );
+
+  useEffect(() => {
+    setProducts([]);
+    setSkip(0);
+    setHasMore(false);
+    fetchProducts(0, false);
+  }, [categoryId, fetchProducts]);
 
   const handleShowMore = () => {
-    fetchMore({
-      variables: {
-        first: pageSize,
-        skip: skip + pageSize,
-        filters: { categoryId },
-      },
-      updateQuery: (prev, { fetchMoreResult }) => {
-        if (!fetchMoreResult) return prev;
-        return {
-          products: {
-            ...fetchMoreResult.products,
-            products: [
-              ...prev.products.products,
-              ...fetchMoreResult.products.products,
-            ],
-          },
-        };
-      },
-    }).then(() => setSkip(skip + pageSize));
+    fetchProducts(skip + pageSize, true);
   };
 
   if (loading && skip === 0) {
@@ -57,7 +124,7 @@ const CategorySection: React.FC<CategorySectionProps> = ({
     return (
       <div className="text-center py-12">
         <p className="text-lg text-red-500">
-          Error loading {categoryName}: {error.message}
+          Error loading {categoryName}: {error}
         </p>
       </div>
     );

@@ -14,18 +14,19 @@ function useStorage<T>(
       : window.sessionStorage
     : null;
 
-  const getStoredValue = (): T => {
-    if (!isClient || !storage) return initialValue;
+  const [storedValue, setStoredValue] = useState<T>(initialValue);
+
+  useEffect(() => {
+    if (!isClient || !storage) return;
     try {
       const item = storage.getItem(key);
-      return item ? JSON.parse(item) : initialValue;
+      if (item !== null) {
+        setStoredValue(JSON.parse(item));
+      }
     } catch (error) {
       console.warn(`Error reading storage key "${key}":`, error);
-      return initialValue;
     }
-  };
-
-  const [storedValue, setStoredValue] = useState<T>(getStoredValue);
+  }, []);
 
   useEffect(() => {
     if (!isClient || !storage) return;

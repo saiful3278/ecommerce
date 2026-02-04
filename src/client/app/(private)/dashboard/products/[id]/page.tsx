@@ -23,11 +23,6 @@ const ManageProduct = () => {
     onSubmit,
     handleDelete,
     router,
-    selectedVariant,
-    handleVariantChange,
-    resetSelections,
-    attributeGroups,
-    selectedAttributes,
   } = useProductDetail();
 
   if (productsLoading || categoriesLoading) {
@@ -96,7 +91,12 @@ const ManageProduct = () => {
         </motion.div>
 
         <ProductHeader
-          product={product}
+          product={{
+            name: product.name,
+            price: product.variants?.[0]?.price || 0,
+            discount: 0, // Placeholder
+            stock: product.variants?.reduce((sum: number, v: any) => sum + (v.stock || 0), 0) || 0
+          }}
           isDeleting={isDeleting}
           onDelete={() => setIsConfirmModalOpen(true)}
         />
@@ -104,13 +104,14 @@ const ManageProduct = () => {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-1">
             <ProductSummary
-              product={product}
+              product={{
+                id: product.id || "",
+                price: product.variants?.[0]?.price || 0,
+                discount: 0,
+                stock: product.variants?.reduce((sum: number, v: any) => sum + (v.stock || 0), 0) || 0,
+                categoryId: product.categoryId || ""
+              }}
               categories={categories}
-              selectedVariant={selectedVariant}
-              attributeGroups={attributeGroups}
-              selectedAttributes={selectedAttributes}
-              onVariantChange={handleVariantChange}
-              resetSelections={resetSelections}
               isUpdating={isUpdating}
               onSave={() => form.handleSubmit(onSubmit)()}
             />

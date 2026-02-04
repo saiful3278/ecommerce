@@ -7,28 +7,26 @@ import {
   ShoppingCart,
   Menu,
   X,
-  CircleUserRound,
   Search,
   LogOut,
 } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import SearchBar from "../molecules/SearchBar";
-import { useGetCartCountQuery } from "@/app/store/apis/CartApi";
 import useClickOutside from "@/app/hooks/dom/useClickOutside";
 import useEventListener from "@/app/hooks/dom/useEventListener";
 import { useAuth } from "@/app/hooks/useAuth";
 import { useAppDispatch } from "@/app/store/hooks";
-import { useSignOutMutation } from "@/app/store/apis/AuthApi";
 import { logout } from "@/app/store/slices/AuthSlice";
 import { generateUserAvatar } from "@/app/utils/placeholderImage";
+import { getSupabaseClient } from "@/app/lib/supabaseClient";
+import { useCart } from "@/app/hooks/miscellaneous/useCart";
 
 const Navbar = () => {
   const pathname = usePathname();
   const dispatch = useAppDispatch();
-  const [signout] = useSignOutMutation();
   const router = useRouter();
   const { user, isLoading, isAuthenticated } = useAuth();
-  const { data: cartData } = useGetCartCountQuery(undefined);
+  const { cartCount } = useCart();
   const [menuOpen, setMenuOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
@@ -45,7 +43,8 @@ const Navbar = () => {
 
   const handleSignOut = async () => {
     try {
-      await signout();
+      const supabase = getSupabaseClient();
+      await supabase.auth.signOut();
       dispatch(logout());
       router.push("/sign-in");
     } catch (error) {
@@ -95,9 +94,9 @@ const Navbar = () => {
                 aria-label="Shopping cart"
               >
                 <ShoppingCart className="text-[20px] sm:text-[22px]" />
-                {cartData?.cartCount > 0 && (
+                {cartCount > 0 && (
                   <span className="absolute -top-1 -right-1 bg-indigo-600 text-white text-xs font-medium rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1">
-                    {cartData?.cartCount > 99 ? "99+" : cartData?.cartCount}
+                    {cartCount > 99 ? "99+" : cartCount}
                   </span>
                 )}
               </Link>

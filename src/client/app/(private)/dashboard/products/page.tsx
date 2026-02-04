@@ -1,12 +1,6 @@
 "use client";
 import Table from "@/app/components/layout/Table";
-import {
-  useCreateProductMutation,
-  useDeleteProductMutation,
-  useGetAllProductsQuery,
-  useUpdateProductMutation,
-} from "@/app/store/apis/ProductApi";
-import { useState } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import ProductModal from "./ProductModal";
 import { Trash2, Edit, Upload, X } from "lucide-react";
 import ConfirmModal from "@/app/components/organisms/ConfirmModal";
@@ -15,23 +9,39 @@ import ProductFileUpload from "./ProductFileUpload";
 import { usePathname } from "next/navigation";
 import { ProductFormData } from "./product.types";
 import { withAuth } from "@/app/components/HOC/WithAuth";
+import { getSupabaseClient } from "@/app/lib/supabaseClient";
+import useQueryParams from "@/app/hooks/network/useQueryParams";
+import { generateUniqueSlug } from "@/app/utils/slug";
+import Image from "next/image";
+import { generateProductPlaceholder } from "@/app/utils/placeholderImage";
 
 const ProductsDashboard = () => {
   const { showToast } = useToast();
-  const [createProduct, { isLoading: isCreating, error: createError }] =
-    useCreateProductMutation();
-  const [updateProduct, { isLoading: isUpdating, error: updateError }] =
-    useUpdateProductMutation();
-  const [deleteProduct, { isLoading: isDeleting }] = useDeleteProductMutation();
+  const [isCreating, setIsCreating] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [updateError, setUpdateError] = useState<string | null>(null);
 
   const pathname = usePathname();
   const shouldFetchProducts = pathname === "/dashboard/products";
+  const { query } = useQueryParams();
 
-  const { data, isLoading } = useGetAllProductsQuery(
-    { select: { variants: true } }, // Ensure variants are included
-    { skip: !shouldFetchProducts }
-  );
-  const products = data?.products || [];
+  const [products, setProducts] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+
+  const searchQuery =
+    typeof query.searchQuery === "string" ? query.searchQuery : "";
+  const sortParam = typeof query.sort === "string" ? query.sort : "";
+  const [sortKey, sortDirection] = useMemo(() => {
+    if (!sortParam) return [null, "asc"];
+    const [key, direction] = sortParam.split(":");
+    return [key || null, direction === "desc" ? "desc" : "asc"];
+  }, [sortParam]);
+
+  const storageBucket =
+    process.env.NEXT_PUBLIC_SUPABASE_PRODUCTS_BUCKET || "products-images";
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<ProductFormData | null>(
     null
@@ -40,96 +50,335 @@ const ProductsDashboard = () => {
   const [productToDelete, setProductToDelete] = useState<string | null>(null);
   const [isFileUploadOpen, setIsFileUploadOpen] = useState(false);
 
-  const handleCreateProduct = async (data: ProductFormData) => {
-    const payload = new FormData();
-    payload.append("name", data.name || "");
-    payload.append("description", data.description || "");
-    payload.append("isNew", data.isNew.toString());
-    payload.append("isTrending", data.isTrending.toString());
-    payload.append("isBestSeller", data.isBestSeller.toString());
-    payload.append("isFeatured", data.isFeatured.toString());
-    payload.append("categoryId", data.categoryId || "");
 
-    // Track image indexes for each variant
-    let imageIndex = 0;
-    data.variants.forEach((variant, index) => {
-      payload.append(`variants[${index}][sku]`, variant.sku || "");
-      payload.append(`variants[${index}][price]`, variant.price.toString());
-      payload.append(`variants[${index}][stock]`, variant.stock.toString());
-      payload.append(
-        `variants[${index}][lowStockThreshold]`,
-        variant.lowStockThreshold?.toString() || "10"
-      );
-      payload.append(`variants[${index}][barcode]`, variant.barcode || "");
-      payload.append(
-        `variants[${index}][warehouseLocation]`,
-        variant.warehouseLocation || ""
-      );
-      // Append attributes as JSON
-      payload.append(
-        `variants[${index}][attributes]`,
-        JSON.stringify(variant.attributes || [])
-      );
-      // Track image indexes for this variant
-      if (Array.isArray(variant.images) && variant.images.length > 0) {
-        const imageIndexes = variant.images
-          .map((file) => {
-            if (file instanceof File) {
-              payload.append(`images`, file);
-              return imageIndex++;
-            }
-            return null;
-          })
-          .filter((idx) => idx !== null);
-        payload.append(
-          `variants[${index}][imageIndexes]`,
-          JSON.stringify(imageIndexes)
-        );
-      } else {
-        payload.append(`variants[${index}][imageIndexes]`, JSON.stringify([]));
+  const splitImages = (images?: Array<File | string>) => {
+    const files: File[] = [];
+    const urls: string[] = [];
+    (images || []).forEach((image) => {
+      if (image instanceof File) {
+        files.push(image);
+      } else if (typeof image === "string") {
+        urls.push(image);
       }
     });
+    return { files, urls };
+  };
 
-    // Log the payload for debugging
-    console.log("Creating product with payload:");
-    for (const [key, value] of payload.entries()) {
-      console.log(`${key}:`, value);
+  const uploadVariantImages = async (
+    files: File[],
+    productId: string,
+    sku: string
+  ) => {
+    if (!files.length) return [];
+    const supabase = getSupabaseClient();
+    const uploadedUrls: string[] = [];
+
+    for (const file of files) {
+      const path = `products/${productId}/${sku}/${Date.now()}-${file.name}`;
+      const { error: uploadError } = await supabase.storage
+        .from(storageBucket)
+        .upload(path, file, { upsert: false });
+      if (uploadError) {
+        throw uploadError;
+      }
+      const { data: publicUrlData } = supabase.storage
+        .from(storageBucket)
+        .getPublicUrl(path);
+      if (publicUrlData?.publicUrl) {
+        uploadedUrls.push(publicUrlData.publicUrl);
+      }
     }
 
+    return uploadedUrls;
+  };
+
+  const mapProduct = (product: any) => ({
+    id: product.id,
+    name: product.name,
+    slug: product.slug,
+    description: product.description,
+    isNew: product.is_new,
+    isFeatured: product.is_featured,
+    isTrending: product.is_trending,
+    isBestSeller: product.is_best_seller,
+    categoryId: product.category_id,
+    salesCount: product.salesCount || 0,
+    variants:
+      product.product_variants?.map((variant: any) => ({
+        id: variant.id,
+        sku: variant.sku,
+        price: Number(variant.price || 0),
+        stock: variant.stock ?? 0,
+        lowStockThreshold: variant.low_stock_threshold ?? 10,
+        barcode: variant.barcode || "",
+        warehouseLocation: variant.warehouse_location || "",
+        images: variant.images || [],
+        attributes:
+          variant.product_variant_attributes?.map((attr: any) => ({
+            attributeId: attr.attribute_id,
+            valueId: attr.value_id,
+          })) || [],
+      })) || [],
+  });
+
+  const fetchProducts = useCallback(async () => {
+    if (!shouldFetchProducts) return;
+    setIsLoading(true);
+    setFetchError(null);
+    const supabase = getSupabaseClient();
+    let queryBuilder = supabase
+      .from("products")
+      .select(
+        "id,name,slug,description,is_new,is_featured,is_trending,is_best_seller,category_id,created_at,product_variants(id,sku,price,stock,low_stock_threshold,barcode,warehouse_location,images,product_variant_attributes(attribute_id,value_id))"
+      );
+
+    if (searchQuery) {
+      queryBuilder = queryBuilder.or(
+        `name.ilike.%${searchQuery}%,description.ilike.%${searchQuery}%`
+      );
+    }
+
+    if (sortKey === "name") {
+      queryBuilder = queryBuilder.order("name", {
+        ascending: sortDirection === "asc",
+      });
+    }
+
+    const { data, error } = await queryBuilder;
+    if (error) {
+      setFetchError(error.message);
+      setProducts([]);
+      setIsLoading(false);
+      return;
+    }
+    setProducts((data || []).map(mapProduct));
+    setIsLoading(false);
+  }, [searchQuery, sortKey, sortDirection, shouldFetchProducts]);
+
+  useEffect(() => {
+    fetchProducts();
+  }, [fetchProducts]);
+
+  const handleCreateProduct = async (data: ProductFormData) => {
+    setIsCreating(true);
+    setCreateError(null);
     try {
-      await createProduct(payload).unwrap();
+      const supabase = getSupabaseClient();
+      const slug = await generateUniqueSlug(supabase, "products", data.name);
+      const { data: product, error: productError } = await supabase
+        .from("products")
+        .insert({
+          name: data.name,
+          slug,
+          description: data.description || null,
+          is_new: data.isNew,
+          is_trending: data.isTrending,
+          is_best_seller: data.isBestSeller,
+          is_featured: data.isFeatured,
+          category_id: data.categoryId || null,
+        })
+        .select()
+        .single();
+
+      if (productError || !product) {
+        throw productError || new Error("Failed to create product");
+      }
+
+      for (const variant of data.variants) {
+        const { files, urls } = splitImages(variant.images);
+        const uploadedUrls = await uploadVariantImages(
+          files,
+          product.id,
+          variant.sku
+        );
+        const { data: createdVariant, error: variantError } = await supabase
+          .from("product_variants")
+          .insert({
+            product_id: product.id,
+            sku: variant.sku,
+            price: variant.price,
+            stock: variant.stock,
+            low_stock_threshold: variant.lowStockThreshold ?? 10,
+            barcode: variant.barcode || null,
+            warehouse_location: variant.warehouseLocation || null,
+            images: [...urls, ...uploadedUrls],
+          })
+          .select()
+          .single();
+
+        if (variantError || !createdVariant) {
+          throw variantError || new Error("Failed to create variant");
+        }
+
+        if (variant.attributes?.length) {
+          const attributeRows = variant.attributes
+            .filter((attr) => attr.attributeId && attr.valueId)
+            .map((attr) => ({
+              variant_id: createdVariant.id,
+              attribute_id: attr.attributeId,
+              value_id: attr.valueId,
+            }));
+          if (attributeRows.length) {
+            const { error: attrError } = await supabase
+              .from("product_variant_attributes")
+              .insert(attributeRows);
+            if (attrError) {
+              throw attrError;
+            }
+          }
+        }
+      }
+
       setIsModalOpen(false);
       showToast("Product created successfully", "success");
-    } catch (err) {
+      fetchProducts();
+    } catch (err: any) {
       console.error("Failed to create product:", err);
-      showToast("Failed to create product", "error");
+      if (err && typeof err === 'object') {
+         console.error("Error details:", JSON.stringify(err, null, 2));
+      }
+      const message =
+        err?.message || "Failed to create product";
+      setCreateError(message);
+      showToast(message, "error");
+    } finally {
+      setIsCreating(false);
     }
   };
 
   const handleUpdateProduct = async (data: ProductFormData) => {
     if (!editingProduct) return;
 
-    const payload = new FormData();
-    payload.append("name", data.name || "");
-    payload.append("description", data.description || "");
-    payload.append("isNew", data.isNew.toString());
-    payload.append("isTrending", data.isTrending.toString());
-    payload.append("isBestSeller", data.isBestSeller.toString());
-    payload.append("isFeatured", data.isFeatured.toString());
-    payload.append("categoryId", data.categoryId || "");
-    payload.append("variants", JSON.stringify(data.variants));
-
+    setIsUpdating(true);
+    setUpdateError(null);
     try {
-      await updateProduct({
-        id: editingProduct.id!,
-        data: payload,
-      }).unwrap();
+      const supabase = getSupabaseClient();
+      const { error: productError } = await supabase
+        .from("products")
+        .update({
+          name: data.name,
+          description: data.description || null,
+          is_new: data.isNew,
+          is_trending: data.isTrending,
+          is_best_seller: data.isBestSeller,
+          is_featured: data.isFeatured,
+          category_id: data.categoryId || null,
+        })
+        .eq("id", editingProduct.id);
+
+      if (productError) {
+        throw productError;
+      }
+
+      for (const variant of data.variants) {
+        const { files, urls } = splitImages(variant.images);
+        let existingUrls = urls;
+        if (variant.id && !existingUrls.length && !files.length) {
+          const { data: existingVariant } = await supabase
+            .from("product_variants")
+            .select("images")
+            .eq("id", variant.id)
+            .maybeSingle();
+          existingUrls = existingVariant?.images || [];
+        }
+        const uploadedUrls = await uploadVariantImages(
+          files,
+          editingProduct.id!,
+          variant.sku
+        );
+        const finalImages = [...existingUrls, ...uploadedUrls];
+
+        if (variant.id) {
+          const { error: variantError } = await supabase
+            .from("product_variants")
+            .update({
+              sku: variant.sku,
+              price: variant.price,
+              stock: variant.stock,
+              low_stock_threshold: variant.lowStockThreshold ?? 10,
+              barcode: variant.barcode || null,
+              warehouse_location: variant.warehouseLocation || null,
+              images: finalImages,
+            })
+            .eq("id", variant.id);
+
+          if (variantError) {
+            throw variantError;
+          }
+
+          await supabase
+            .from("product_variant_attributes")
+            .delete()
+            .eq("variant_id", variant.id);
+
+          if (variant.attributes?.length) {
+            const attributeRows = variant.attributes
+              .filter((attr) => attr.attributeId && attr.valueId)
+              .map((attr) => ({
+                variant_id: variant.id,
+                attribute_id: attr.attributeId,
+                value_id: attr.valueId,
+              }));
+            if (attributeRows.length) {
+              const { error: attrError } = await supabase
+                .from("product_variant_attributes")
+                .insert(attributeRows);
+              if (attrError) {
+                throw attrError;
+              }
+            }
+          }
+        } else {
+          const { data: createdVariant, error: variantError } = await supabase
+            .from("product_variants")
+            .insert({
+              product_id: editingProduct.id,
+              sku: variant.sku,
+              price: variant.price,
+              stock: variant.stock,
+              low_stock_threshold: variant.lowStockThreshold ?? 10,
+              barcode: variant.barcode || null,
+              warehouse_location: variant.warehouseLocation || null,
+              images: finalImages,
+            })
+            .select()
+            .single();
+
+          if (variantError || !createdVariant) {
+            throw variantError || new Error("Failed to create variant");
+          }
+
+          if (variant.attributes?.length) {
+            const attributeRows = variant.attributes
+              .filter((attr) => attr.attributeId && attr.valueId)
+              .map((attr) => ({
+                variant_id: createdVariant.id,
+                attribute_id: attr.attributeId,
+                value_id: attr.valueId,
+              }));
+            if (attributeRows.length) {
+              const { error: attrError } = await supabase
+                .from("product_variant_attributes")
+                .insert(attributeRows);
+              if (attrError) {
+                throw attrError;
+              }
+            }
+          }
+        }
+      }
+
       setIsModalOpen(false);
       setEditingProduct(null);
       showToast("Product updated successfully", "success");
+      fetchProducts();
     } catch (err) {
-      console.error("Failed to update product:", err);
-      showToast("Failed to update product", "error");
+      const message =
+        err instanceof Error ? err.message : "Failed to update product";
+      setUpdateError(message);
+      showToast(message, "error");
+    } finally {
+      setIsUpdating(false);
     }
   };
 
@@ -140,14 +389,26 @@ const ProductsDashboard = () => {
 
   const confirmDelete = async () => {
     if (!productToDelete) return;
+    setIsDeleting(true);
     try {
-      await deleteProduct(productToDelete).unwrap();
+      const supabase = getSupabaseClient();
+      const { error } = await supabase
+        .from("products")
+        .delete()
+        .eq("id", productToDelete);
+      if (error) {
+        throw error;
+      }
       setIsConfirmModalOpen(false);
       setProductToDelete(null);
       showToast("Product deleted successfully", "success");
+      fetchProducts();
     } catch (err) {
-      console.error("Failed to delete product:", err);
-      showToast("Failed to delete product", "error");
+      const message =
+        err instanceof Error ? err.message : "Failed to delete product";
+      showToast(message, "error");
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -164,8 +425,25 @@ const ProductsDashboard = () => {
       label: "Name",
       sortable: true,
       render: (row: any) => (
-        <div className="flex items-center space-x-2">
-          <span>{row.name}</span>
+        <div className="flex items-center space-x-3">
+          <div className="relative w-10 h-10 rounded-md overflow-hidden bg-gray-100 border border-gray-200 flex-shrink-0">
+            <Image
+              src={
+                row.variants?.[0]?.images?.[0] ||
+                generateProductPlaceholder(row.name)
+              }
+              alt={row.name}
+              fill
+              className="object-cover"
+              sizes="40px"
+              onError={(e) => {
+                const target = e.currentTarget as HTMLImageElement;
+                target.srcset = "";
+                target.src = generateProductPlaceholder(row.name);
+              }}
+            />
+          </div>
+          <span className="font-medium text-gray-900">{row.name}</span>
         </div>
       ),
     },
@@ -282,12 +560,8 @@ const ProductsDashboard = () => {
         data={products}
         columns={columns}
         isLoading={isLoading}
-        emptyMessage="No products available"
-        onRefresh={() => console.log("refreshed")}
-        totalPages={data?.totalPages}
-        totalResults={data?.totalResults}
-        resultsPerPage={data?.resultsPerPage}
-        currentPage={data?.currentPage}
+        emptyMessage={fetchError || "No products available"}
+        onRefresh={fetchProducts}
       />
 
       <ProductModal
@@ -299,7 +573,15 @@ const ProductsDashboard = () => {
         onSubmit={editingProduct ? handleUpdateProduct : handleCreateProduct}
         initialData={editingProduct || undefined}
         isLoading={editingProduct ? isUpdating : isCreating}
-        error={editingProduct ? updateError : createError}
+        error={
+          editingProduct
+            ? updateError
+              ? { data: { message: updateError } }
+              : null
+            : createError
+            ? { data: { message: createError } }
+            : null
+        }
       />
 
       <ConfirmModal

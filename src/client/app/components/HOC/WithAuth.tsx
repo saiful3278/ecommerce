@@ -3,13 +3,9 @@ import CustomLoader from "../feedback/CustomLoader";
 import { useAuth } from "@/app/hooks/useAuth";
 import { useEffect } from "react";
 
-export function withAuth<P extends Record<string, unknown>>(
-  Component: React.ComponentType<P>
-) {
+export function withAuth<P extends {}>(Component: React.ComponentType<P>) {
   return function AuthWrapper(props: P) {
     const { isAuthenticated, isLoading } = useAuth();
-    console.log("isAuthenticated: ", isAuthenticated);
-    console.log("isLoading: ", isLoading);
     const router = useRouter();
 
     useEffect(() => {

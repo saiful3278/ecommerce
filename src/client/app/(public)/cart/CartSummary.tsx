@@ -1,7 +1,5 @@
 "use client";
-import { useInitiateCheckoutMutation } from "@/app/store/apis/CheckoutApi";
 import React, { useMemo } from "react";
-import { loadStripe } from "@stripe/stripe-js";
 import useToast from "@/app/hooks/ui/useToast";
 import { motion } from "framer-motion";
 import Link from "next/link";
@@ -24,11 +22,7 @@ const CartSummary: React.FC<CartSummaryProps> = ({
   const { isAuthenticated } = useAuth();
   const { showToast } = useToast();
 
-  const stripePromise = loadStripe(
-    "pk_test_51R9gs72KGvEXtMtXXTm7UscmmHYsvk9j3ktaM8vxRb3evNJgG1dpD05YWACweIfcPtpCgOIs4HkpGrTCKE1dZD0p00sLC6iIBg"
-  );
-
-  const [initiateCheckout, { isLoading }] = useInitiateCheckoutMutation();
+  const isLoading = false;
 
   const shippingFee = useMemo(
     () => subtotal * shippingRate,
@@ -37,19 +31,7 @@ const CartSummary: React.FC<CartSummaryProps> = ({
   const total = useMemo(() => subtotal + shippingFee, [subtotal, shippingFee]);
 
   const handleInitiateCheckout = async () => {
-    try {
-      const res = await initiateCheckout(undefined).unwrap();
-      const stripe = await stripePromise;
-      const result = await stripe?.redirectToCheckout({
-        sessionId: res.sessionId,
-      });
-
-      if (result?.error) {
-        showToast(result.error.message, "error");
-      }
-    } catch {
-      showToast("Failed to initiate checkout", "error");
-    }
+    showToast("Checkout is disabled for now", "info");
   };
 
   return (
@@ -97,7 +79,7 @@ const CartSummary: React.FC<CartSummaryProps> = ({
           onClick={handleInitiateCheckout}
           className="mt-4 w-full bg-indigo-600 text-white py-2.5 rounded-md font-medium text-sm hover:bg-indigo-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
         >
-          {isLoading ? "Processing..." : "Proceed to Checkout"}
+          {isLoading ? "Processing..." : "Place Order (Disabled)"}
         </button>
       ) : (
         <Link

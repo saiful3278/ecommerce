@@ -12,14 +12,13 @@ import {
   ChevronRight,
   Group,
 } from "lucide-react";
-import { useSignOutMutation } from "@/app/store/apis/AuthApi";
+import { getSupabaseClient } from "@/app/lib/supabaseClient";
 import useClickOutside from "@/app/hooks/dom/useClickOutside";
 import useEventListener from "@/app/hooks/dom/useEventListener";
 import { useAppDispatch } from "@/app/store/hooks";
 import { logout } from "@/app/store/slices/AuthSlice";
 
 const UserMenu = ({ menuOpen, closeMenu, user }) => {
-  const [signout] = useSignOutMutation();
   const dispatch = useAppDispatch();
   const router = useRouter();
   const menuRef = useRef(null);
@@ -34,7 +33,8 @@ const UserMenu = ({ menuOpen, closeMenu, user }) => {
 
   const handleSignOut = async () => {
     try {
-      await signout();
+      const supabase = getSupabaseClient();
+      await supabase.auth.signOut();
       dispatch(logout());
       router.push("/sign-in");
     } catch (error) {

@@ -1,42 +1,30 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
-import {
-  useUpdateProductMutation,
-  useDeleteProductMutation,
-  useGetProductByIdQuery,
-} from "@/app/store/apis/ProductApi";
-import { useGetAllCategoriesQuery } from "@/app/store/apis/CategoryApi";
 import useToast from "@/app/hooks/ui/useToast";
 import { ProductFormData } from "@/app/(private)/dashboard/products/product.types";
+import { getSupabaseClient } from "@/app/lib/supabaseClient";
+import { uploadImages } from "@/app/utils/supabaseStorage";
 
 export const useProductDetail = () => {
   const { id } = useParams();
   const router = useRouter();
   const { showToast } = useToast();
 
-  const {
-    data: product,
-    isLoading: productsLoading,
-    error: productsError,
-  } = useGetProductByIdQuery(id);
+  const [product, setProduct] = useState<ProductFormData | null>(null);
+  const [productsLoading, setProductsLoading] = useState(true);
+  const [productsError, setProductsError] = useState<any>(null);
 
-  const { data: categoriesData, isLoading: categoriesLoading } =
-    useGetAllCategoriesQuery({});
+  const [categories, setCategories] = useState<{ label: string; value: string }[]>([]);
+  const [categoriesLoading, setCategoriesLoading] = useState(true);
 
-  const categories =
-    categoriesData?.categories.map((c) => ({
-      label: c.name,
-      value: c.id,
-    })) || [];
-
-  const [updateProduct, { isLoading: isUpdating }] = useUpdateProductMutation();
-  const [deleteProduct, { isLoading: isDeleting }] = useDeleteProductMutation();
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Variant selection state
-  const [selectedVariant, setSelectedVariant] = useState(null);
-  const [selectedAttributes, setSelectedAttributes] = useState({});
+  const [selectedVariant, setSelectedVariant] = useState<any>(null);
+  const [selectedAttributes, setSelectedAttributes] = useState<Record<string, string>>({});
 
   // Form setup with initial empty default values
   const form = useForm<ProductFormData>({
@@ -53,54 +41,134 @@ export const useProductDetail = () => {
     },
   });
 
-  // Reset form and selected variant when product data is fetched
-  useEffect(() => {
-    if (product) {
+  const fetchProduct = useCallback(async () => {
+    if (!id) return;
+    setProductsLoading(true);
+    setProductsError(null);
+    try {
+      const supabase = getSupabaseClient();
+      const { data, error } = await supabase
+        .from("products")
+        .select(
+          `
+          id, name, description, category_id, is_new, is_trending, is_best_seller, is_featured,
+          variants:product_variants(
+            id, sku, price, stock, low_stock_threshold, barcode, warehouse_location, images,
+            attributes:product_variant_attributes(
+              attribute_id, value_id,
+              attribute:attributes(name),
+              value:attribute_values(value)
+            )
+          )
+        `
+        )
+        .eq("id", id)
+        .single();
+
+      if (error) throw error;
+      if (!data) throw new Error("Product not found");
+
+      const mappedProduct: ProductFormData = {
+        id: data.id,
+        name: data.name,
+        description: data.description || "",
+        categoryId: data.category_id || "",
+        isNew: data.is_new,
+        isTrending: data.is_trending,
+        isBestSeller: data.is_best_seller,
+        isFeatured: data.is_featured,
+        variants: data.variants.map((v: any) => ({
+          id: v.id,
+          sku: v.sku,
+          price: v.price,
+          stock: v.stock,
+          lowStockThreshold: v.low_stock_threshold,
+          barcode: v.barcode || "",
+          warehouseLocation: v.warehouse_location || "",
+          images: v.images || [],
+          attributes: v.attributes.map((attr: any) => ({
+            attributeId: attr.attribute_id,
+            valueId: attr.value_id,
+            // These are for UI selection logic
+            attributeName: attr.attribute?.name,
+            valueName: attr.value?.value,
+          })),
+        })),
+      };
+
+      setProduct(mappedProduct);
+      
+      // Reset form
       form.reset({
-        id: product.id || "",
-        name: product.name || "",
-        description: product.description || "",
-        categoryId: product.categoryId || "",
-        isNew: product.isNew || false,
-        isTrending: product.isTrending || false,
-        isBestSeller: product.isBestSeller || false,
-        isFeatured: product.isFeatured || false,
-        variants:
-          product.variants?.map((v) => ({
-            id: v.id || "",
-            sku: v.sku || "",
-            price: v.price || 0,
-            stock: v.stock || 0,
-            lowStockThreshold: v.lowStockThreshold || 10,
-            barcode: v.barcode || "",
-            warehouseLocation: v.warehouseLocation || "",
-            attributes: v.attributes || [],
-            images: v.images || [],
-          })) || [],
+        ...mappedProduct,
+        variants: mappedProduct.variants.map(v => ({
+            ...v,
+            attributes: v.attributes.map((a: any) => ({
+                attributeId: a.attributeId,
+                valueId: a.valueId
+            }))
+        }))
       });
-      // Set default selected variant to the first one
-      setSelectedVariant(product.variants?.[0] || null);
+
+      // Set default selected variant
+      setSelectedVariant(mappedProduct.variants[0] || null);
       setSelectedAttributes({});
+
+    } catch (err) {
+      console.error("Error fetching product:", err);
+      setProductsError(err);
+    } finally {
+      setProductsLoading(false);
     }
-  }, [product, form]);
+  }, [id, form]);
+
+  const fetchCategories = useCallback(async () => {
+    setCategoriesLoading(true);
+    try {
+      const supabase = getSupabaseClient();
+      const { data, error } = await supabase
+        .from("categories")
+        .select("id, name")
+        .order("name");
+
+      if (error) throw error;
+      setCategories(
+        data.map((c) => ({
+          label: c.name,
+          value: c.id,
+        }))
+      );
+    } catch (err) {
+      console.error("Error fetching categories:", err);
+    } finally {
+      setCategoriesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchProduct();
+    fetchCategories();
+  }, [fetchProduct, fetchCategories]);
 
   // Handle variant change based on attribute selections
-  const handleVariantChange = (attributeName, value) => {
+  const handleVariantChange = (attributeName: string, value: string) => {
     const newSelections = { ...selectedAttributes, [attributeName]: value };
     setSelectedAttributes(newSelections);
 
-    const variant = product?.variants.find((v) =>
+    if (!product) return;
+
+    const variant = product.variants.find((v: any) =>
       Object.entries(newSelections).every(
         ([attrName, attrValue]) =>
           attrName === "" ||
           v.attributes.some(
-            (attr) =>
-              attr.attribute?.name === attrName &&
-              attr.value?.value === attrValue
+            (attr: any) =>
+              attr.attributeName === attrName &&
+              attr.valueName === attrValue
           )
       )
     );
-    setSelectedVariant(variant || product?.variants?.[0] || null);
+    setSelectedVariant(variant || product.variants[0] || null);
   };
 
   // Reset variant selections
@@ -109,72 +177,169 @@ export const useProductDetail = () => {
     setSelectedVariant(product?.variants?.[0] || null);
   };
 
-  // Handle update
-  const onSubmit = async (data: ProductFormData) => {
-    const payload = new FormData();
-    payload.append("name", data.name || "");
-    payload.append("description", data.description || "");
-    payload.append("isNew", data.isNew.toString());
-    payload.append("isTrending", data.isTrending.toString());
-    payload.append("isBestSeller", data.isBestSeller.toString());
-    payload.append("isFeatured", data.isFeatured.toString());
-    payload.append("categoryId", data.categoryId || "");
-
-    // Handle variants
-    data.variants.forEach((variant, index) => {
-      payload.append(`variants[${index}][id]`, variant.id || "");
-      payload.append(`variants[${index}][sku]`, variant.sku || "");
-      payload.append(`variants[${index}][price]`, variant.price.toString());
-      payload.append(`variants[${index}][stock]`, variant.stock.toString());
-      payload.append(
-        `variants[${index}][lowStockThreshold]`,
-        variant.lowStockThreshold?.toString() || "10"
-      );
-      payload.append(`variants[${index}][barcode]`, variant.barcode || "");
-      payload.append(
-        `variants[${index}][warehouseLocation]`,
-        variant.warehouseLocation || ""
-      );
-      payload.append(
-        `variants[${index}][attributes]`,
-        JSON.stringify(variant.attributes || [])
-      );
-      // Handle new image uploads
-      if (variant.images && variant.images.length > 0) {
-        variant.images.forEach((file) => {
-          if (file instanceof File) {
-            payload.append(`images`, file);
-          }
-        });
+  const splitImages = (images: Array<File | string>) => {
+    const files: File[] = [];
+    const urls: string[] = [];
+    (images || []).forEach((image) => {
+      if (image instanceof File) {
+        files.push(image);
+      } else if (typeof image === "string") {
+        urls.push(image);
       }
     });
+    return { files, urls };
+  };
 
+  // Handle update
+  const onSubmit = async (data: ProductFormData) => {
+    setIsUpdating(true);
     try {
-      await updateProduct({
-        id: id as string,
-        data: payload,
-      }).unwrap();
+      const supabase = getSupabaseClient();
+      
+      // Update product details
+      const { error: productError } = await supabase
+        .from("products")
+        .update({
+          name: data.name,
+          description: data.description || null,
+          category_id: data.categoryId || null,
+          is_new: data.isNew,
+          is_trending: data.isTrending,
+          is_best_seller: data.isBestSeller,
+          is_featured: data.isFeatured,
+        })
+        .eq("id", id);
+
+      if (productError) throw productError;
+
+      // Update variants
+      const storageBucket = process.env.NEXT_PUBLIC_SUPABASE_PRODUCTS_BUCKET || "products-images";
+
+      for (const variant of data.variants) {
+        const { files, urls } = splitImages(variant.images);
+        let existingUrls = urls;
+
+        // If it's an existing variant and no new files, ensure we keep existing images if passed as empty array (shouldn't happen with form logic but good to be safe)
+        // Actually, form logic passes existing strings.
+        
+        const uploadedUrls = await uploadImages(supabase, storageBucket, `products/${id}/${variant.sku}`, files);
+        const finalImages = [...existingUrls, ...uploadedUrls];
+
+        if (variant.id) {
+          // Update existing variant
+          const { error: variantError } = await supabase
+            .from("product_variants")
+            .update({
+              sku: variant.sku,
+              price: variant.price,
+              stock: variant.stock,
+              low_stock_threshold: variant.lowStockThreshold ?? 10,
+              barcode: variant.barcode || null,
+              warehouse_location: variant.warehouseLocation || null,
+              images: finalImages,
+            })
+            .eq("id", variant.id);
+
+          if (variantError) throw variantError;
+
+          // Update attributes (delete all and re-insert)
+          await supabase
+            .from("product_variant_attributes")
+            .delete()
+            .eq("variant_id", variant.id);
+            
+          if (variant.attributes?.length) {
+            const attributeRows = variant.attributes
+              .filter((attr) => attr.attributeId && attr.valueId)
+              .map((attr) => ({
+                variant_id: variant.id,
+                attribute_id: attr.attributeId,
+                value_id: attr.valueId,
+              }));
+              
+            if (attributeRows.length) {
+               const { error: attrError } = await supabase
+                .from("product_variant_attributes")
+                .insert(attributeRows);
+               if (attrError) throw attrError;
+            }
+          }
+
+        } else {
+          // Create new variant (if added during edit)
+          const { data: createdVariant, error: variantError } = await supabase
+            .from("product_variants")
+            .insert({
+              product_id: id,
+              sku: variant.sku,
+              price: variant.price,
+              stock: variant.stock,
+              low_stock_threshold: variant.lowStockThreshold ?? 10,
+              barcode: variant.barcode || null,
+              warehouse_location: variant.warehouseLocation || null,
+              images: finalImages,
+            })
+            .select()
+            .single();
+
+          if (variantError) throw variantError;
+          
+          if (variant.attributes?.length && createdVariant) {
+            const attributeRows = variant.attributes
+              .filter((attr) => attr.attributeId && attr.valueId)
+              .map((attr) => ({
+                variant_id: createdVariant.id,
+                attribute_id: attr.attributeId,
+                value_id: attr.valueId,
+              }));
+              
+            if (attributeRows.length) {
+               const { error: attrError } = await supabase
+                .from("product_variant_attributes")
+                .insert(attributeRows);
+               if (attrError) throw attrError;
+            }
+          }
+        }
+      }
+
       showToast("Product updated successfully", "success");
-    } catch (err) {
+      fetchProduct(); // Refresh data
+    } catch (err: any) {
       console.error("Failed to update product:", err);
-      showToast("Failed to update product", "error");
+      showToast(err.message || "Failed to update product", "error");
+    } finally {
+      setIsUpdating(false);
     }
   };
 
   // Handle delete
   const handleDelete = async () => {
+    setIsDeleting(true);
     try {
-      await deleteProduct(id as string).unwrap();
+      const supabase = getSupabaseClient();
+      const { error } = await supabase
+        .from("products")
+        .delete()
+        .eq("id", id);
+
+      if (error) throw error;
+
       showToast("Product deleted successfully", "success");
       router.push("/dashboard/products");
-    } catch (err) {
+    } catch (err: any) {
       console.error("Failed to delete product:", err);
-      showToast("Failed to delete product", "error");
+      showToast(err.message || "Failed to delete product", "error");
+    } finally {
+      setIsDeleting(false);
     }
   };
 
   // Compute attribute groups for variant selection
-  const attributeGroups = product?.variants.reduce((acc, variant) => {
+  const attributeGroups = product?.variants?.reduce((acc: any, variant: any) => {
+    // Only consider this variant if it matches current selections (excluding the one being grouped)
+    // Actually, we want to show all available options.
+    // Logic from original file:
     const hasSelections = Object.values(selectedAttributes).some(
       (value) => value !== ""
     );
@@ -183,22 +348,24 @@ export const useProductDetail = () => {
           ([attrName, attrValue]) =>
             attrName === "" ||
             variant.attributes.some(
-              (attr) =>
-                attr.attribute?.name === attrName &&
-                attr.value?.value === attrValue
+              (attr: any) =>
+                attr.attributeName === attrName &&
+                attr.valueName === attrValue
             )
         )
       : true;
+
     if (matchesSelections) {
-      variant.attributes.forEach(({ attribute, value }) => {
-        if (!acc[attribute.name]) {
-          acc[attribute.name] = { values: new Set<string>() };
+      variant.attributes.forEach(({ attributeName, valueName }: any) => {
+        if (!attributeName || !valueName) return;
+        if (!acc[attributeName]) {
+          acc[attributeName] = { values: new Set<string>() };
         }
-        acc[attribute.name].values.add(value.value);
+        acc[attributeName].values.add(valueName);
       });
     }
     return acc;
-  }, {} as Record<string, { values: Set<string> }>);
+  }, {} as Record<string, { values: Set<string> }>) || {};
 
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
 

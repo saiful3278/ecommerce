@@ -17,7 +17,7 @@ const TopLoadingBar: React.FC = () => {
     const timer = setTimeout(() => {
       console.log("Route change completed to:", pathname);
       NProgress.done();
-    }, 400); // Match NProgress speed
+    }, 150); // Reduced from 400ms for snappier feel
 
     return () => {
       clearTimeout(timer);

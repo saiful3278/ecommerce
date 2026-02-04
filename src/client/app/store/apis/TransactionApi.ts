@@ -1,37 +1,93 @@
 import { apiSlice } from "../slices/ApiSlice";
+import { getSupabaseClient } from "@/app/lib/supabaseClient";
 
 export const transactionApi = apiSlice.injectEndpoints({
   endpoints: (builder) => ({
     getAllTransactions: builder.query({
-      query: () => "/transactions",
-      providesTags: ["Transactions"], // 👈 Tag for all transactions
+      queryFn: async () => {
+        const supabase = getSupabaseClient();
+        const { data, error } = await supabase
+          .from("transactions")
+          .select(`
+             *,
+             order:orders(
+               amount, 
+               user:profiles(name)
+             )
+          `)
+          .order("created_at", { ascending: false });
+
+        if (error) {
+          return { error: { status: 500, data: error.message } };
+        }
+
+        return { data };
+      },
+      providesTags: ["Transactions"], 
     }),
     getTransaction: builder.query({
-      query: (id) => `/transactions/${id}`,
-      providesTags: (result, error, id) => [{ type: "Transactions", id }], // 👈 Tag for single transaction
+      queryFn: async (id) => {
+        const supabase = getSupabaseClient();
+        const { data, error } = await supabase
+          .from("transactions")
+          .select(`
+             *,
+             order:orders(
+               amount, 
+               user:profiles(name)
+             )
+          `)
+          .eq("id", id)
+          .single();
+
+        if (error) {
+           return { error: { status: 404, data: error.message } };
+        }
+
+        return { data };
+      },
+      providesTags: (result, error, id) => [{ type: "Transactions", id }], 
     }),
 
-
     updateTransactionStatus: builder.mutation({
-      query: ({ id, status }: { id: string; status: string }) => ({
-        url: `/transactions/status/${id}`,
-        method: "PUT",
-        body: { status },
-      }),
+      queryFn: async ({ id, status }: { id: string; status: string }) => {
+        const supabase = getSupabaseClient();
+        const { data, error } = await supabase
+          .from("transactions")
+          .update({ status })
+          .eq("id", id)
+          .select()
+          .single();
+
+        if (error) {
+          return { error: { status: 500, data: error.message } };
+        }
+
+        return { data };
+      },
       invalidatesTags: (result, error, { id }) => [
-        { type: "Transactions", id }, // 👈 Invalidate single
-        "Transactions", // 👈 Invalidate list if needed
+        { type: "Transactions", id }, 
+        "Transactions", 
       ],
     }),
 
     deleteTransaction: builder.mutation({
-      query: (id) => ({
-        url: `/transactions/${id}`,
-        method: "DELETE",
-      }),
+      queryFn: async (id) => {
+        const supabase = getSupabaseClient();
+        const { error } = await supabase
+          .from("transactions")
+          .delete()
+          .eq("id", id);
+
+        if (error) {
+          return { error: { status: 500, data: error.message } };
+        }
+
+        return { data: { success: true } };
+      },
       invalidatesTags: (result, error, id) => [
-        { type: "Transactions", id }, // 👈 Invalidate single
-        "Transactions", // 👈 Invalidate list
+        { type: "Transactions", id }, 
+        "Transactions", 
       ],
     }),
   }),

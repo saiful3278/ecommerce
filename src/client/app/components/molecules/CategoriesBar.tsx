@@ -1,8 +1,8 @@
 "use client";
-import React from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { ChevronRight } from "lucide-react";
-import { useGetAllCategoriesQuery } from "@/app/store/apis/CategoryApi";
+import { getSupabaseClient } from "@/app/lib/supabaseClient";
 
 interface Category {
   id: string;
@@ -11,12 +11,24 @@ interface Category {
 }
 
 const CategoriesBar = () => {
-  const { data, error } = useGetAllCategoriesQuery({});
+  const [categories, setCategories] = useState<Category[]>([]);
 
-  if (error) {
-    console.log("error occured while fetching categories", error);
-  }
-  const categories = data?.categories || [];
+  useEffect(() => {
+    const fetchCategories = async () => {
+      try {
+        const supabase = getSupabaseClient();
+        const { data } = await supabase
+          .from("categories")
+          .select("id, name, slug")
+          .order("name");
+        
+        setCategories(data || []);
+      } catch (error) {
+        console.log("error occured while fetching categories", error);
+      }
+    };
+    fetchCategories();
+  }, []);
 
   return (
     <div className="w-full">

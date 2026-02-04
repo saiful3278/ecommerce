@@ -1,10 +1,5 @@
 "use client";
-import React, { useState } from "react";
-import {
-  useGetAllCategoriesQuery,
-  useCreateCategoryMutation,
-  useDeleteCategoryMutation,
-} from "@/app/store/apis/CategoryApi";
+import React, { useState, useEffect, useCallback } from "react";
 import Table from "@/app/components/layout/Table";
 import { motion } from "framer-motion";
 import { Tag, Trash2, Plus } from "lucide-react";
@@ -14,15 +9,18 @@ import ConfirmModal from "@/app/components/organisms/ConfirmModal";
 import CategoryForm, { CategoryFormData } from "./CategoryForm";
 import useToast from "@/app/hooks/ui/useToast";
 import { withAuth } from "@/app/components/HOC/WithAuth";
+import { getSupabaseClient } from "@/app/lib/supabaseClient";
+import { generateUniqueSlug } from "@/app/utils/slug";
+import { uploadImages } from "@/app/utils/supabaseStorage";
 
 const CategoriesDashboard = () => {
   const { showToast } = useToast();
-  const { data, isLoading, error } = useGetAllCategoriesQuery({});
-  const [createCategory, { isLoading: isCreating }] =
-    useCreateCategoryMutation();
-  const [deleteCategory, { isLoading: isDeleting }] =
-    useDeleteCategoryMutation();
-  const categories = data?.categories || [];
+  const [categories, setCategories] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const [isCreating, setIsCreating] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
@@ -32,12 +30,34 @@ const CategoriesDashboard = () => {
     defaultValues: { name: "", description: "", images: [] },
   });
 
+  const fetchCategories = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase
+      .from("categories")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Error fetching categories:", error);
+      setError(error.message);
+    } else {
+      setCategories(data || []);
+    }
+    setIsLoading(false);
+  }, []);
+
+  useEffect(() => {
+    fetchCategories();
+  }, [fetchCategories]);
+
   const columns = [
     {
       key: "name",
       label: "Name",
       sortable: true,
-      render: (row) => (
+      render: (row: any) => (
         <span className="font-medium text-gray-800">{row?.name || "N/A"}</span>
       ),
     },
@@ -45,14 +65,16 @@ const CategoriesDashboard = () => {
       key: "description",
       label: "Description",
       sortable: true,
-      render: (row) => (
-        <span className="font-medium text-gray-800">{row?.name || "N/A"}</span>
+      render: (row: any) => (
+        <span className="font-medium text-gray-800">
+          {row?.description || "N/A"}
+        </span>
       ),
     },
     {
       key: "actions",
       label: "Actions",
-      render: (row) => (
+      render: (row: any) => (
         <div className="flex space-x-2">
           <button
             onClick={() => handleDeletePrompt(row?.id)}
@@ -75,44 +97,79 @@ const CategoriesDashboard = () => {
 
   const handleDelete = async () => {
     if (!categoryToDelete) return;
+    setIsDeleting(true);
     try {
-      await deleteCategory(categoryToDelete).unwrap();
+      const supabase = getSupabaseClient();
+      const { error } = await supabase
+        .from("categories")
+        .delete()
+        .eq("id", categoryToDelete);
+
+      if (error) throw error;
+
       setIsConfirmModalOpen(false);
       setCategoryToDelete(null);
       showToast("Category deleted successfully", "success");
-    } catch (err) {
+      fetchCategories();
+    } catch (err: any) {
       console.error("Failed to delete category:", err);
-      showToast("Failed to delete category", "error");
+      showToast(err.message || "Failed to delete category", "error");
+    } finally {
+      setIsDeleting(false);
     }
   };
 
   const onSubmit = async (formData: CategoryFormData) => {
-    const payload = new FormData();
-
-    payload.append("name", formData.name || "");
-    payload.append("description", formData.description || "");
-
-    if (data.images && Array.isArray(data.images)) {
-      data.images.forEach((file: any) => {
-        if (file instanceof File) {
-          payload.append("images", file);
-        }
-      });
-    }
-
-    console.log("FormData payload:");
-    for (const [key, value] of payload.entries()) {
-      console.log(`${key}: ${value instanceof File ? value.name : value}`);
-    }
-
+    setIsCreating(true);
     try {
-      await createCategory(payload).unwrap();
+      const supabase = getSupabaseClient();
+      const slug = await generateUniqueSlug(supabase, "categories", formData.name);
+
+      // Upload images
+      const files: File[] = [];
+      const existingUrls: string[] = [];
+
+      if (formData.images && Array.isArray(formData.images)) {
+        formData.images.forEach((item) => {
+          if (item instanceof File) {
+            files.push(item);
+          } else if (typeof item === "string") {
+            existingUrls.push(item);
+          }
+        });
+      }
+
+      // Upload new files
+      const newUrls = await uploadImages(
+        supabase,
+        "products-images", // Using shared bucket
+        `categories/${slug}`,
+        files
+      );
+
+      const allImages = [...existingUrls, ...newUrls];
+
+      const { error } = await supabase.from("categories").insert({
+        name: formData.name,
+        description: formData.description,
+        slug,
+        images: allImages,
+      });
+
+      if (error) throw error;
+
       setIsCreateModalOpen(false);
-      form.reset({ name: "" });
+      form.reset({ name: "", description: "", images: [] });
       showToast("Category created successfully", "success");
-    } catch (err) {
+      fetchCategories();
+    } catch (err: any) {
       console.error("Failed to create category:", err);
-      showToast("Failed to create category", "error");
+      if (err && typeof err === 'object') {
+         console.error("Error details:", JSON.stringify(err, null, 2));
+      }
+      showToast(err?.message || "Failed to create category", "error");
+    } finally {
+      setIsCreating(false);
     }
   };
 
@@ -149,8 +206,7 @@ const CategoriesDashboard = () => {
       ) : error ? (
         <div className="text-center py-12">
           <p className="text-lg text-red-500">
-            Error loading categories:{" "}
-            {(error as any)?.message || "Unknown error"}
+            Error loading categories: {error}
           </p>
         </div>
       ) : categories.length === 0 ? (

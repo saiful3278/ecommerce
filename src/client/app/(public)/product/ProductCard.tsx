@@ -1,6 +1,6 @@
 "use client";
-import React, { useEffect } from "react";
-import { Eye } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { Eye, ShoppingCart } from "lucide-react";
 import { Product } from "@/app/types/productTypes";
 import Image from "next/image";
 import Link from "next/link";
@@ -8,6 +8,7 @@ import Rating from "@/app/components/feedback/Rating";
 import useTrackInteraction from "@/app/hooks/miscellaneous/useTrackInteraction";
 import { useRouter } from "next/navigation";
 import { generateProductPlaceholder } from "@/app/utils/placeholderImage";
+import { useCart } from "@/app/hooks/miscellaneous/useCart";
 
 interface ProductCardProps {
   product: Product;
@@ -16,6 +17,8 @@ interface ProductCardProps {
 const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   const { trackInteraction } = useTrackInteraction();
   const router = useRouter();
+  const { addToCart } = useCart();
+  const [addingToCart, setAddingToCart] = useState(false);
 
   useEffect(() => {
     trackInteraction(product.id, "view");
@@ -23,7 +26,20 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
 
   const handleClick = () => {
     trackInteraction(product.id, "click");
-    router.push(`/product/${product.slug}`);
+    // Removed redundant router.push to prevent double navigation race condition with Link
+  };
+
+  const handleAddToCart = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    if (inStockVariants.length > 0) {
+      setAddingToCart(true);
+      // Use the first in-stock variant
+      const variantId = inStockVariants[0].id;
+      await addToCart(variantId, 1);
+      setAddingToCart(false);
+    }
   };
 
   // Compute lowest price among in-stock variants
@@ -135,14 +151,20 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
         {/* Quick Actions */}
         <div className="mt-auto pt-2 sm:pt-3 border-t border-gray-100">
           <button
-            className="w-full bg-indigo-600 text-white py-2 sm:py-2.5 lg:py-3 rounded-sm
-              font-medium text-xs sm:text-sm"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleClick();
-            }}
+            className={`w-full flex items-center justify-center gap-2 py-2 sm:py-2.5 lg:py-3 rounded-sm font-medium text-xs sm:text-sm transition-colors ${
+              inStockVariants.length > 0
+                ? "bg-indigo-600 text-white hover:bg-indigo-700"
+                : "bg-gray-300 text-gray-500 cursor-not-allowed"
+            }`}
+            onClick={handleAddToCart}
+            disabled={inStockVariants.length === 0 || addingToCart}
           >
-            View Details
+            <ShoppingCart size={16} />
+            {addingToCart
+              ? "Adding..."
+              : inStockVariants.length > 0
+              ? "Add to Cart"
+              : "Out of Stock"}
           </button>
         </div>
       </div>

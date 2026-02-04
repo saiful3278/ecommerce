@@ -1,27 +1,21 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import MainLayout from "@/app/components/templates/MainLayout";
 import BreadCrumb from "@/app/components/feedback/BreadCrumb";
 import { useParams } from "next/navigation";
 import ProductImageGallery from "../ProductImageGallery";
 import ProductInfo from "../ProductInfo";
 import ProductReviews from "../ProductReviews";
-import { useQuery } from "@apollo/client";
 import { generateProductPlaceholder } from "@/app/utils/placeholderImage";
-import { GET_SINGLE_PRODUCT } from "@/app/gql/Product";
 import ProductDetailSkeletonLoader from "@/app/components/feedback/ProductDetailSkeletonLoader";
 import { Product } from "@/app/types/productTypes";
+import { getSupabaseClient } from "@/app/lib/supabaseClient";
 
 const ProductDetailsPage = () => {
   const { slug } = useParams();
-  const { data, loading, error } = useQuery<{ product: Product }>(
-    GET_SINGLE_PRODUCT,
-    {
-      variables: { slug: typeof slug === "string" ? slug : slug?.[0] || "" },
-      fetchPolicy: "no-cache",
-    }
-  );
-  console.log("product data:", data);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [product, setProduct] = useState<Product | null>(null);
 
   const [selectedVariant, setSelectedVariant] = useState<
     Product["variants"][0] | null
@@ -30,21 +24,134 @@ const ProductDetailsPage = () => {
     Record<string, string>
   >({});
 
+  const mapProduct = useCallback((data: any): Product => {
+    return {
+      id: data.id,
+      slug: data.slug,
+      name: data.name,
+      isNew: data.is_new,
+      isFeatured: data.is_featured,
+      isTrending: data.is_trending,
+      isBestSeller: data.is_best_seller,
+      averageRating: Number(data.average_rating || 0),
+      reviewCount: Number(data.review_count || 0),
+      description: data.description ?? null,
+      variants:
+        data.product_variants?.map((variant: any) => ({
+          id: variant.id,
+          sku: variant.sku,
+          price: Number(variant.price || 0),
+          images: variant.images || [],
+          stock: variant.stock ?? 0,
+          lowStockThreshold: variant.low_stock_threshold ?? 10,
+          barcode: variant.barcode ?? null,
+          warehouseLocation: variant.warehouse_location ?? null,
+          attributes:
+            variant.product_variant_attributes?.map((attr: any) => ({
+              id: attr.id,
+              attribute: {
+                id: attr.attribute?.id,
+                name: attr.attribute?.name,
+                slug: attr.attribute?.slug,
+              },
+              value: {
+                id: attr.value?.id,
+                value: attr.value?.value,
+                slug: attr.value?.slug,
+              },
+            })) || [],
+        })) || [],
+      category: data.category
+        ? {
+            id: data.category.id,
+            name: data.category.name,
+            slug: data.category.slug,
+          }
+        : null,
+      reviews:
+        data.reviews?.map((review: any) => ({
+          id: review.id,
+          rating: review.rating,
+          comment: review.comment,
+          createdAt: review.created_at,
+          userId: review.user_id,
+          user: review.user ? { name: review.user.name } : undefined,
+        })) || [],
+    };
+  }, []);
+
+  const fetchProduct = useCallback(async () => {
+    const slugValue = typeof slug === "string" ? slug : slug?.[0] || "";
+    if (!slugValue) {
+      setProduct(null);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    const supabase = getSupabaseClient();
+    
+    // 1. Fetch product details (without reviews to avoid relationship error)
+    const { data: productData, error: productError } = await supabase
+      .from("products")
+      .select(
+        "id,slug,name,description,is_new,is_featured,is_trending,is_best_seller,average_rating,review_count,category:categories!products_category_id_fkey(id,name,slug),product_variants(id,sku,price,images,stock,low_stock_threshold,barcode,warehouse_location,product_variant_attributes(id,attribute:attributes(id,name,slug),value:attribute_values(id,value,slug)))"
+      )
+      .eq("slug", slugValue)
+      .maybeSingle();
+
+    if (productError) {
+      setError(productError.message);
+      setLoading(false);
+      return;
+    }
+
+    if (!productData) {
+      setProduct(null);
+      setLoading(false);
+      return;
+    }
+
+    // 2. Fetch reviews separately
+    let reviewsData: any[] = [];
+    try {
+      const { data: reviews, error: reviewsError } = await supabase
+        .from("reviews")
+        .select("id,rating,comment,created_at,user_id")
+        .eq("product_id", productData.id);
+      
+      if (!reviewsError && reviews) {
+        reviewsData = reviews;
+      }
+    } catch (err) {
+      console.error("Error fetching reviews:", err);
+    }
+
+    // Combine data
+    const fullProductData = {
+      ...productData,
+      reviews: reviewsData
+    };
+
+    setProduct(mapProduct(fullProductData));
+    setLoading(false);
+  }, [mapProduct, slug]);
+
+  useEffect(() => {
+    fetchProduct();
+  }, [fetchProduct]);
+
   if (loading) return <ProductDetailSkeletonLoader />;
 
   if (error) {
     return (
       <MainLayout>
         <div className="text-center py-12">
-          <p className="text-lg text-red-500">
-            Error loading product: {error.message}
-          </p>
+          <p className="text-lg text-red-500">Error loading product: {error}</p>
         </div>
       </MainLayout>
     );
   }
-
-  const product = data?.product;
 
   if (!product) {
     return (

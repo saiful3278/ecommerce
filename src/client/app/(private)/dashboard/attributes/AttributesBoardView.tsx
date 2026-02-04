@@ -4,21 +4,42 @@ import React, { useState } from "react";
 import { Plus, Tag, Settings, DollarSign } from "lucide-react";
 import AttributeCard from "./AttributesCard";
 import StatsCard from "@/app/components/organisms/StatsCard";
-import {
-  useCreateAttributeValueMutation,
-  useDeleteAttributeMutation,
-  useDeleteAttributeValueMutation,
-} from "@/app/store/apis/AttributeApi";
 import useToast from "@/app/hooks/ui/useToast";
 import ConfirmModal from "@/app/components/organisms/ConfirmModal";
+import { getSupabaseClient } from "@/app/lib/supabaseClient";
+import { generateUniqueSlug } from "@/app/utils/slug";
 
-const AttributesBoardView = ({ attributes = [] }) => {
+interface AttributeValue {
+  id: string;
+  value: string;
+}
+
+interface AttributeCategoryRelation {
+  id: string;
+  category?: {
+    name: string;
+  };
+  isRequired: boolean;
+}
+
+interface AttributeItem {
+  id: string;
+  name: string;
+  categories?: AttributeCategoryRelation[];
+  values?: AttributeValue[];
+}
+
+interface AttributesBoardViewProps {
+  attributes?: AttributeItem[];
+  onAttributeUpdated?: () => void;
+}
+
+const AttributesBoardView: React.FC<AttributesBoardViewProps> = ({
+  attributes = [],
+  onAttributeUpdated,
+}) => {
   const { showToast } = useToast();
-  const [createAttributeValue, { isLoading: isCreatingValue }] =
-    useCreateAttributeValueMutation();
-  const [deleteAttribute, { error: deleteAttributeError }] =
-    useDeleteAttributeMutation();
-  const [deleteAttributeValue] = useDeleteAttributeValueMutation();
+  const [isCreatingValue, setIsCreatingValue] = useState(false);
   const [newValue, setNewValue] = useState<Record<string, string>>({});
   const [deleteModal, setDeleteModal] = useState<{
     isOpen: boolean;
@@ -29,38 +50,61 @@ const AttributesBoardView = ({ attributes = [] }) => {
     type: "attribute",
     id: null,
   });
-  console.log("deleteModal => ", deleteModal);
-  console.log("deleteAttributeError => ", deleteAttributeError);
 
   // Handle adding a new value
   const handleAddValue = async (attributeId: string) => {
     const value = newValue[attributeId]?.trim();
     if (!value) return;
 
+    setIsCreatingValue(true);
+    const supabase = getSupabaseClient();
+
     try {
-      await createAttributeValue({ attributeId, value });
+      const slug = await generateUniqueSlug(supabase, "attribute_values", value);
+      const { error } = await supabase.from("attribute_values").insert({
+        attribute_id: attributeId,
+        value: value,
+        slug: slug,
+      });
+
+      if (error) throw error;
+
       showToast("Attribute value created successfully", "success");
       setNewValue((prev) => ({ ...prev, [attributeId]: "" }));
-    } catch (err) {
+      if (onAttributeUpdated) onAttributeUpdated();
+    } catch (err: any) {
       console.error("Error creating attribute value:", err);
-      showToast("Failed to create attribute value", "error");
+      showToast(err.message || "Failed to create attribute value", "error");
+    } finally {
+      setIsCreatingValue(false);
     }
   };
 
   // Handle confirming attribute deletion
   const handleConfirmDelete = async () => {
     if (!deleteModal.id) return;
+    const supabase = getSupabaseClient();
+
     try {
       if (deleteModal.type === "attribute") {
-        await deleteAttribute(deleteModal.id);
+        const { error } = await supabase
+          .from("attributes")
+          .delete()
+          .eq("id", deleteModal.id);
+        if (error) throw error;
         showToast("Attribute deleted successfully", "success");
       } else if (deleteModal.type === "value") {
-        await deleteAttributeValue(deleteModal.id);
+        const { error } = await supabase
+          .from("attribute_values")
+          .delete()
+          .eq("id", deleteModal.id);
+        if (error) throw error;
         showToast("Attribute value deleted successfully", "success");
       }
-    } catch (err) {
+      if (onAttributeUpdated) onAttributeUpdated();
+    } catch (err: any) {
       console.error(`Error deleting ${deleteModal.type}:`, err);
-      showToast(`Failed to delete ${deleteModal.type}`, "error");
+      showToast(err.message || `Failed to delete ${deleteModal.type}`, "error");
     } finally {
       setDeleteModal({ isOpen: false, type: "attribute", id: null });
     }
@@ -69,7 +113,7 @@ const AttributesBoardView = ({ attributes = [] }) => {
   // Calculate unique categories
   const uniqueCategories = new Set(
     attributes.flatMap(
-      (attr) => attr.categories?.map((cat) => cat.category?.id) || []
+      (attr) => attr.categories?.map((cat) => cat.category?.name) || []
     )
   ).size;
 

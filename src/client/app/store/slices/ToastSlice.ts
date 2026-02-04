@@ -4,6 +4,8 @@ export type Toast = {
   id: string;
   message: string | undefined;
   type: "success" | "error" | "warning" | "info";
+  title?: string;
+  duration?: number;
 };
 
 interface ToastState {

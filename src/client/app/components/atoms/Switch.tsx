@@ -26,7 +26,7 @@ const Switch: React.FC<SwitchProps> = ({
       name={name}
       control={control}
       render={({ field }) => (
-        <div className={cn("flex items-center space-x-2", className)}>
+        <div className={cn("flex items-center space-x-2", className ?? "")}>
           {label && (
             <label htmlFor={name} className="text-sm font-medium text-gray-700">
               {label}
@@ -36,7 +36,7 @@ const Switch: React.FC<SwitchProps> = ({
             className={cn(
               "relative inline-flex items-center h-6 w-11 rounded-full transition-colors duration-100 ease-in-out",
               field.value ? "bg-indigo-600" : "bg-gray-300",
-              disabled && "opacity-50 cursor-not-allowed"
+              disabled ? "opacity-50 cursor-not-allowed" : ""
             )}
             onClick={() => !disabled && field.onChange(!field.value)}
           >

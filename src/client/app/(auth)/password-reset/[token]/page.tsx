@@ -1,11 +1,11 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import Input from "@/app/components/atoms/Input";
 import Button from "@/app/components/atoms/Button";
-import { useResetPasswordMutation } from "@/app/store/apis/AuthApi";
-import { useParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { getSupabaseClient } from "@/app/lib/supabaseClient";
 
 const PasswordResetWithToken = () => {
   const { handleSubmit, control } = useForm({
@@ -15,10 +15,24 @@ const PasswordResetWithToken = () => {
     },
   });
 
-  const { token } = useParams();
-  const [resetPassword, { isLoading }] = useResetPasswordMutation();
+  const searchParams = useSearchParams();
+  const [isLoading, setIsLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [isError, setIsError] = useState(false);
+
+  useEffect(() => {
+    const code = searchParams.get("code");
+    if (!code) return;
+    const supabase = getSupabaseClient();
+    setIsLoading(true);
+    supabase.auth.exchangeCodeForSession(code).then(({ error }) => {
+      setIsLoading(false);
+      if (error) {
+        setMessage(error.message || "Unable to validate reset link.");
+        setIsError(true);
+      }
+    });
+  }, [searchParams]);
 
   const onSubmit = async (formData: {
     password: string;
@@ -31,14 +45,28 @@ const PasswordResetWithToken = () => {
     }
 
     try {
-      await resetPassword({
-        token: token as string,
-        newPassword: formData.password,
-      }).unwrap();
+      setIsLoading(true);
+      const supabase = getSupabaseClient();
+      const { data } = await supabase.auth.getSession();
+      if (!data.session) {
+        setIsLoading(false);
+        setMessage("Reset link expired. Please request a new one.");
+        setIsError(true);
+        return;
+      }
+      const { error } = await supabase.auth.updateUser({
+        password: formData.password,
+      });
+      setIsLoading(false);
+      if (error) {
+        setMessage(error.message || "Something went wrong");
+        setIsError(true);
+        return;
+      }
       setMessage("Password reset successful! You can now log in.");
       setIsError(false);
     } catch {
-      // setMessage(err?.data?.message || "Something went wrong");
+      setIsLoading(false);
       setIsError(true);
     }
   };

@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import {
   Facebook,
   Twitter,
@@ -13,8 +13,7 @@ import {
   Truck,
 } from "lucide-react";
 import Link from "next/link";
-import { useQuery } from "@apollo/client";
-import { GET_CATEGORIES } from "@/app/gql/Product";
+import { getSupabaseClient } from "@/app/lib/supabaseClient";
 
 const FooterLogo = () => (
   <svg viewBox="0 0 120 40" className="h-10">
@@ -34,9 +33,23 @@ const FooterLogo = () => (
 const Footer = () => {
   const currentYear = new Date().getFullYear();
 
-  // Fetch real categories data
-  const { data: categoriesData } = useQuery(GET_CATEGORIES);
-  const categories = categoriesData?.categories || [];
+  const [categories, setCategories] = useState<
+    Array<{ id: string; name: string }>
+  >([]);
+
+  useEffect(() => {
+    const fetchCategories = async () => {
+      const supabase = getSupabaseClient();
+      const { data, error } = await supabase
+        .from("categories")
+        .select("id,name")
+        .order("name", { ascending: true });
+      if (!error) {
+        setCategories(data || []);
+      }
+    };
+    fetchCategories();
+  }, []);
 
   // Get top 6 categories for footer
   const footerCategories = categories.slice(0, 6);

@@ -3,30 +3,48 @@
 import React, { useState } from "react";
 import { Plus } from "lucide-react";
 import useToast from "@/app/hooks/ui/useToast";
-import { useCreateAttributeMutation } from "@/app/store/apis/AttributeApi";
+import { getSupabaseClient } from "@/app/lib/supabaseClient";
+import { generateUniqueSlug } from "@/app/utils/slug";
 
-const AttributeForm: React.FC<any> = () => {
+interface AttributeFormProps {
+  onAttributeCreated?: () => void;
+}
+
+const AttributeForm: React.FC<AttributeFormProps> = ({ onAttributeCreated }) => {
   const { showToast } = useToast();
-  const [createAttribute, { isLoading: isCreatingAttribute, error }] =
-    useCreateAttributeMutation();
-  console.log("Failed to create attribute", error);
+  const [isCreatingAttribute, setIsCreatingAttribute] = useState(false);
 
   const [newAttribute, setNewAttribute] = useState({
     name: "",
   });
-  console.log("new Attribute => ", newAttribute);
 
   const handleCreateAttribute = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!newAttribute.name.trim()) return;
+
+    setIsCreatingAttribute(true);
+    const supabase = getSupabaseClient();
+
     try {
-      await createAttribute({
+      const slug = await generateUniqueSlug(supabase, "attributes", newAttribute.name);
+      
+      const { error } = await supabase.from("attributes").insert({
         name: newAttribute.name,
+        slug,
       });
+
+      if (error) throw error;
+
       showToast("Attribute created successfully", "success");
       setNewAttribute({ name: "" });
-    } catch (err) {
-      console.log("error => ", err);
-      showToast("Failed to create attribute", "error");
+      if (onAttributeCreated) {
+        onAttributeCreated();
+      }
+    } catch (err: any) {
+      console.error("Error creating attribute:", err);
+      showToast(err.message || "Failed to create attribute", "error");
+    } finally {
+      setIsCreatingAttribute(false);
     }
   };
 

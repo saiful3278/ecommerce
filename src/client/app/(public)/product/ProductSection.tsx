@@ -2,7 +2,6 @@
 import React from "react";
 import { motion } from "framer-motion";
 import { Package } from "lucide-react";
-import { ApolloError } from "@apollo/client";
 import ProductCard from "./ProductCard";
 import { Product } from "@/app/types/productTypes";
 
@@ -10,7 +9,7 @@ interface ProductSectionProps {
   title: string;
   products: Product[];
   loading: boolean;
-  error: ApolloError | undefined;
+  error: { message?: string } | null;
   showTitle?: boolean;
 }
 

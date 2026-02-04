@@ -1,10 +1,11 @@
 "use client";
 import Rating from "@/app/components/feedback/Rating";
-import { useAddToCartMutation } from "@/app/store/apis/CartApi";
+import { getSupabaseClient } from "@/app/lib/supabaseClient";
 import useToast from "@/app/hooks/ui/useToast";
 import { Product } from "@/app/types/productTypes";
 import { Palette, Ruler, Info, Package, Check, X } from "lucide-react";
 import { motion } from "framer-motion";
+import { useState } from "react";
 
 interface ProductInfoProps {
   id: string;
@@ -33,7 +34,7 @@ const ProductInfo: React.FC<ProductInfoProps> = ({
   resetSelections,
 }) => {
   const { showToast } = useToast();
-  const [addToCart, { isLoading }] = useAddToCartMutation();
+  const [isLoading, setIsLoading] = useState(false as any);
 
   const handleAddToCart = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -42,15 +43,61 @@ const ProductInfo: React.FC<ProductInfoProps> = ({
       return;
     }
     try {
-      const res = await addToCart({
-        variantId: selectedVariant.id,
-        quantity: 1,
-      });
-      console.log(res);
+      setIsLoading(true);
+      const supabase = getSupabaseClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) {
+        showToast("Please sign in to add items to your cart", "error");
+        setIsLoading(false);
+        return;
+      }
+      const { data: existingCart } = await supabase
+        .from("carts")
+        .select("id")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      let cartId = existingCart?.id;
+      if (!cartId) {
+        const { data: createdCart, error: cartError } = await supabase
+          .from("carts")
+          .insert({ user_id: user.id })
+          .select()
+          .single();
+        if (cartError || !createdCart) {
+          throw cartError || new Error("Failed to create cart");
+        }
+        cartId = createdCart.id;
+      }
+      const { data: existingItem } = await supabase
+        .from("cart_items")
+        .select("id, quantity")
+        .eq("cart_id", cartId)
+        .eq("variant_id", selectedVariant.id)
+        .maybeSingle();
+      if (existingItem?.id) {
+        const { error: updateError } = await supabase
+          .from("cart_items")
+          .update({ quantity: (existingItem.quantity || 1) + 1 })
+          .eq("id", existingItem.id);
+        if (updateError) throw updateError;
+      } else {
+        const { error: insertError } = await supabase.from("cart_items").insert({
+          cart_id: cartId,
+          variant_id: selectedVariant.id,
+          quantity: 1,
+        });
+        if (insertError) throw insertError;
+      }
       showToast("Product added to cart", "success");
+      setIsLoading(false);
     } catch (error: any) {
-      showToast(error.data?.message || "Failed to add to cart", "error");
+      const message =
+        error?.message || error?.data?.message || "Failed to add to cart";
+      showToast(message, "error");
       console.error("Error adding to cart:", error);
+      setIsLoading(false);
     }
   };
 

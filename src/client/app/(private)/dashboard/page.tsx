@@ -5,7 +5,7 @@ import Dropdown from "@/app/components/molecules/Dropdown";
 import { BarChart2, DollarSign, LineChart, Users } from "lucide-react";
 import { motion } from "framer-motion";
 import { Controller, useForm } from "react-hook-form";
-import React from "react";
+import React, { useEffect, useState } from "react";
 import useFormatPrice from "@/app/hooks/ui/useFormatPrice";
 import { useQuery } from "@apollo/client";
 import { GET_ANALYTICS_OVERVIEW } from "@/app/gql/Dashboard";
@@ -52,9 +52,19 @@ const Dashboard = () => {
     timePeriod: timePeriod || "allTime",
   };
 
-  const { data, loading, error } = useQuery(GET_ANALYTICS_OVERVIEW, {
+  const { data, loading, error, refetch } = useQuery(GET_ANALYTICS_OVERVIEW, {
     variables: { params: queryParams },
+    notifyOnNetworkStatusChange: true,
   });
+
+  const [timedOut, setTimedOut] = useState(false);
+  useEffect(() => {
+    if (loading) {
+      const t = setTimeout(() => setTimedOut(true), 8000);
+      return () => clearTimeout(t);
+    }
+    setTimedOut(false);
+  }, [loading]);
 
   const topItems =
     data?.productPerformance?.slice(0, 10).map((p) => ({
@@ -69,8 +79,27 @@ const Dashboard = () => {
     data: data?.productPerformance?.map((p) => p.revenue) || [],
   };
 
-  if (loading) {
+  if (loading && !timedOut) {
     return <CustomLoader />;
+  }
+
+  if (loading && timedOut) {
+    return (
+      <div className="flex items-center justify-center min-h-[50vh]">
+        <div className="text-center space-y-3">
+          <div className="text-gray-600">Loading is taking longer than usual</div>
+          <button
+            onClick={() => {
+              setTimedOut(false);
+              refetch();
+            }}
+            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
   }
 
   if (error) {

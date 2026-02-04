@@ -6,14 +6,11 @@ import React, { useMemo } from "react";
 import Image from "next/image";
 import { Controller, useForm } from "react-hook-form";
 import CartSummary from "@/app/(public)/cart/CartSummary";
-import {
-  useGetCartQuery,
-  useRemoveFromCartMutation,
-} from "@/app/store/apis/CartApi";
 import QuantitySelector from "@/app/components/molecules/QuantitySelector";
 import { motion } from "framer-motion";
 import CartSkeletonLoader from "@/app/components/feedback/CartSkeletonLoader";
 import { generateProductPlaceholder } from "@/app/utils/placeholderImage";
+import { useCart } from "@/app/hooks/miscellaneous/useCart";
 
 // Helper function to format variant name from SKU
 const formatVariantName = (item: any) => {
@@ -27,11 +24,8 @@ const formatVariantName = (item: any) => {
 
 const Cart = () => {
   const { control } = useForm();
-  const { data, isLoading } = useGetCartQuery({});
-  const [removeFromCart] = useRemoveFromCartMutation();
-  const cartItems = data?.cart?.cartItems || [];
-  console.log("items => ", cartItems);
-
+  const { cartItems, isLoading, removeFromCart, updateQuantity, cartId } = useCart();
+  
   const subtotal = useMemo(() => {
     if (!cartItems.length) return 0;
     return cartItems.reduce(
@@ -39,11 +33,10 @@ const Cart = () => {
       0
     );
   }, [cartItems]);
-  console.log("subtotal => ", subtotal);
 
-  const handleRemoveFromCart = async (id) => {
+  const handleRemoveFromCart = async (id: string) => {
     try {
-      await removeFromCart(id).unwrap();
+      await removeFromCart(id);
     } catch (error) {
       console.error("Error removing item:", error);
     }
@@ -131,6 +124,7 @@ const Cart = () => {
                         itemId={item.id}
                         value={field.value}
                         onChange={field.onChange}
+                        onUpdate={(id, q) => updateQuantity(id, q)}
                       />
                     )}
                   />
@@ -155,7 +149,7 @@ const Cart = () => {
             <CartSummary
               subtotal={subtotal}
               totalItems={cartItems.length}
-              cartId={data?.cart?.id}
+              cartId={cartId || ""}
             />
           </div>
         )}

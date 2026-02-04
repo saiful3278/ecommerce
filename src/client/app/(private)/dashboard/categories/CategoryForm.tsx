@@ -8,7 +8,7 @@ export interface CategoryFormData {
   id?: string;
   name: string;
   description?: string;
-  images?: string[];
+  images?: (string | File)[];
   slug?: string;
 }
 
@@ -31,7 +31,6 @@ const CategoryForm: React.FC<CategoryFormProps> = ({
     control,
     handleSubmit,
     setValue,
-    watch,
     formState: { errors },
   } = form;
 
@@ -94,10 +93,8 @@ const CategoryForm: React.FC<CategoryFormProps> = ({
           control={control}
           errors={errors}
           setValue={setValue}
-          watch={watch}
           name="images"
           maxFiles={5}
-          existingImages={existingImages}
           disabled={isLoading}
         />
       </div>

@@ -12,17 +12,17 @@ const nextConfig: NextConfig = {
     ignoreBuildErrors: true,
   },
   images: {
-    domains: [
-      "m.media-amazon.com",
-      "www.bestbuy.com",
-      "www.dyson.com",
-      "store.hp.com",
-      "i1.adis.ws",
-      "i5.walmartimages.com",
-      "lh3.googleusercontent.com",
-      "res.cloudinary.com",
-      "pbs.twimg.com",
-      "store.storeimages.cdn-apple.com",
+    remotePatterns: [
+      { protocol: "https", hostname: "m.media-amazon.com" },
+      { protocol: "https", hostname: "www.bestbuy.com" },
+      { protocol: "https", hostname: "www.dyson.com" },
+      { protocol: "https", hostname: "store.hp.com" },
+      { protocol: "https", hostname: "i1.adis.ws" },
+      { protocol: "https", hostname: "i5.walmartimages.com" },
+      { protocol: "https", hostname: "lh3.googleusercontent.com" },
+      { protocol: "https", hostname: "res.cloudinary.com" },
+      { protocol: "https", hostname: "pbs.twimg.com" },
+      { protocol: "https", hostname: "store.storeimages.cdn-apple.com" },
     ],
   },
 };

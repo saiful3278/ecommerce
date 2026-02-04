@@ -49,7 +49,6 @@ const UsersDashboard = () => {
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isCreateAdminModalOpen, setIsCreateAdminModalOpen] = useState(false);
-  const [editingUser, setEditingUser] = useState<UserFormData | null>(null);
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
   const [userToDelete, setUserToDelete] = useState<string | number | null>(
     null
@@ -189,7 +188,6 @@ const UsersDashboard = () => {
             <AdminActionGuard action="update_user" showFallback={false}>
               <button
                 onClick={() => {
-                  setEditingUser(row);
                   form.reset(row);
                   setIsModalOpen(true);
                 }}
@@ -231,7 +229,6 @@ const UsersDashboard = () => {
     try {
       await updateUser(data).unwrap();
       setIsModalOpen(false);
-      setEditingUser(null);
       showToast("User updated successfully", "success");
     } catch (err: any) {
       console.error("Failed to update user:", err);

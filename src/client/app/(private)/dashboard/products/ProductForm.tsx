@@ -83,7 +83,19 @@ const ProductForm: React.FC<ProductFormProps> = ({
               <Dropdown
                 onChange={(value) => {
                   field.onChange(value);
-                  setValue("variants", []); // Reset variants when category changes
+                  setValue("variants", [
+                    {
+                      id: "",
+                      sku: "",
+                      price: 0,
+                      stock: 0,
+                      lowStockThreshold: 10,
+                      barcode: "",
+                      warehouseLocation: "",
+                      images: [],
+                      attributes: [],
+                    },
+                  ]); // Reset to default variant when category changes
                 }}
                 options={categories}
                 value={field.value}

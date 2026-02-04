@@ -4,7 +4,7 @@ import { useForm } from "react-hook-form";
 import Input from "@/app/components/atoms/Input";
 import Button from "@/app/components/atoms/Button";
 import Link from "next/link";
-import axiosInstance from "@/app/utils/axiosInstance";
+import { getSupabaseClient } from "@/app/lib/supabaseClient";
 
 const PasswordReset = () => {
   const { control, handleSubmit, reset } = useForm({
@@ -14,26 +14,24 @@ const PasswordReset = () => {
   const [errorMessage, setErrorMessage] = useState("");
 
   const onSubmit = async (data) => {
+    setErrorMessage("");
+    setSuccessMessage("");
     try {
-      const res = await axiosInstance.post("/auth/forgot-password", data);
-      console.log("res: ", res);
-  
-      if (res.data.error) {
-        // API returned an error -> show error message
-        setErrorMessage(res.data.error.message || "Something went wrong");
-        setSuccessMessage(""); // Clear success message in case of error
-      } else {
-        // API call succeeded -> show success message
-        setSuccessMessage(
-          "Check your email for a link to reset your password. If it doesn’t appear within a few minutes, check your spam folder."
-        );
-        setErrorMessage(""); // Clear error message
-        reset(); // Reset form
+      const supabase = getSupabaseClient();
+      const redirectTo = `${window.location.origin}/password-reset/confirm`;
+      const { error } = await supabase.auth.resetPasswordForEmail(data.email, {
+        redirectTo,
+      });
+      if (error) {
+        setErrorMessage(error.message || "Something went wrong");
+        return;
       }
-    } catch (err) {
-      console.log("error: ", err);
+      setSuccessMessage(
+        "Check your email for a link to reset your password. If it doesn’t appear within a few minutes, check your spam folder."
+      );
+      reset();
+    } catch {
       setErrorMessage("Something went wrong, please try again.");
-      setSuccessMessage(""); // Clear success message on error
     }
   };
 

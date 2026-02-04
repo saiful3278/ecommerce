@@ -90,12 +90,11 @@ const DatePicker = ({
     }
   };
 
-  const handleMonthSelect = (selectedMonth: {
-    label: string;
-    value: string;
-  }) => {
+  const handleMonthSelect = (selectedMonth: string | null) => {
     if (selectedMonth !== null) {
-      const monthIndex = months.indexOf(selectedMonth);
+      const monthIndex = months.findIndex(
+        (m) => m.label === selectedMonth || m.value === selectedMonth
+      );
       setCurrentMonth(new Date(currentMonth.getFullYear(), monthIndex, 1));
     }
   };

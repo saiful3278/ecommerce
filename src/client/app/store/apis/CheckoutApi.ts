@@ -3,11 +3,9 @@ import { apiSlice } from "../slices/ApiSlice";
 export const checkoutApi = apiSlice.injectEndpoints({
   endpoints: (builder) => ({
     initiateCheckout: builder.mutation({
-      query: () => ({
-        url: "/checkout",
-        method: "POST",
-        credentials: "include",
-      }),
+      queryFn: async () => {
+        return { error: { status: 400, data: "Checkout is currently disabled." } };
+      },
     }),
   }),
 });
